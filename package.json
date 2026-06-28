@@ -1,0 +1,75 @@
+{
+  "name": "@hasna/actions",
+  "version": "0.1.0",
+  "description": "Typed, auditable action contracts for deterministic agentic software",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "actions": "dist/cli/index.js",
+    "hasna-actions": "dist/cli/index.js",
+    "actions-mcp": "dist/mcp/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && bun build src/cli/index.ts src/mcp/index.ts src/index.ts src/types.ts src/manifest.ts --outdir dist --target bun --packages external && chmod +x dist/cli/index.js dist/mcp/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly --outDir dist",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run test && bun run build"
+  },
+  "keywords": [
+    "actions",
+    "automations",
+    "contracts",
+    "idempotency",
+    "mcp",
+    "typescript",
+    "bun",
+    "hasna"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hasna/open-actions.git"
+  },
+  "homepage": "https://github.com/hasna/open-actions#readme",
+  "bugs": {
+    "url": "https://github.com/hasna/open-actions/issues"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "author": "Hasna",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  }
+}
