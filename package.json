@@ -1,6 +1,6 @@
 {
   "name": "@hasna/actions",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Typed, auditable action contracts for agentic software.",
   "type": "module",
   "license": "Apache-2.0",

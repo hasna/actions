@@ -38,6 +38,77 @@ export type ActionRunStatus =
   | "rolled_back"
   | "cancelled";
 
+export type ActionQueueStatus =
+  | "queued"
+  | "waiting_approval"
+  | "claimed"
+  | "retrying"
+  | "succeeded"
+  | "failed"
+  | "dead"
+  | "cancelled";
+
+export const ACTION_RUN_STATUSES = [
+  "planned",
+  "previewed",
+  "awaiting_approval",
+  "approved",
+  "denied",
+  "executing",
+  "succeeded",
+  "failed",
+  "rolled_back",
+  "cancelled",
+] as const satisfies readonly ActionRunStatus[];
+
+export const TERMINAL_ACTION_RUN_STATUSES = [
+  "denied",
+  "succeeded",
+  "failed",
+  "rolled_back",
+  "cancelled",
+] as const satisfies readonly ActionRunStatus[];
+
+export const ACTION_QUEUE_STATUSES = [
+  "queued",
+  "waiting_approval",
+  "claimed",
+  "retrying",
+  "succeeded",
+  "failed",
+  "dead",
+  "cancelled",
+] as const satisfies readonly ActionQueueStatus[];
+
+export const TERMINAL_ACTION_QUEUE_STATUSES = [
+  "succeeded",
+  "failed",
+  "dead",
+  "cancelled",
+] as const satisfies readonly ActionQueueStatus[];
+
+export function assertActionRunStatus(value: string): ActionRunStatus {
+  if (!(ACTION_RUN_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`unsupported action run status: ${value}`);
+  }
+  return value as ActionRunStatus;
+}
+
+export function isTerminalActionStatus(status: ActionRunStatus): boolean {
+  return (TERMINAL_ACTION_RUN_STATUSES as readonly string[]).includes(status);
+}
+
+export function assertActionQueueStatus(value: string): ActionQueueStatus {
+  if (!(ACTION_QUEUE_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`unsupported action queue status: ${value}`);
+  }
+  return value as ActionQueueStatus;
+}
+
+export function isTerminalActionQueueStatus(status: ActionQueueStatus): boolean {
+  return (TERMINAL_ACTION_QUEUE_STATUSES as readonly string[]).includes(status);
+}
+
 export interface ActorRef {
   id: string;
   type: ActorType;
@@ -203,6 +274,74 @@ export interface ActionPreview {
   evidence?: EvidenceRef[];
   metadata?: JsonObject;
 }
+
+export interface ActionInvocation<TInput = JsonValue> {
+  id: string;
+  actionId: string;
+  manifestVersion?: string;
+  input: TInput;
+  actor?: ActorRef;
+  requestedAt?: string;
+  idempotencyKey?: string;
+  automationId?: string;
+  runId?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionResult<TOutput = JsonValue> {
+  summary?: string;
+  output?: TOutput;
+  evidence?: EvidenceRef[];
+  metadata?: JsonObject;
+}
+
+export interface ActionError {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  details?: JsonValue;
+  cause?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionDeadLetter {
+  reason: string;
+  failedAt: string;
+  lastError?: ActionError;
+  attempts: number;
+  replayable: boolean;
+  metadata?: JsonObject;
+}
+
+export type ActionQueueApprovalDecisionStatus = "pending" | "approved" | "rejected";
+
+export interface ActionQueueApprovalRequirement {
+  mode: ApprovalKind;
+  requiresApproval: boolean;
+  count?: number;
+  roles?: string[];
+  reason?: string;
+  policy?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionQueueApprovalDecision {
+  id: string;
+  status: ActionQueueApprovalDecisionStatus;
+  requestedAt: string;
+  decidedAt?: string;
+  reason?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionQueueApprovalGate {
+  requirement: ActionQueueApprovalRequirement;
+  blockedUntilApproved: boolean;
+  decision?: ActionQueueApprovalDecision;
+  metadata?: JsonObject;
+}
+
+export type ApprovalGate = ActionQueueApprovalGate;
 
 export interface EvidenceRef {
   kind: "file" | "url" | "event" | "log" | "stdout" | "stderr" | "artifact" | string;
