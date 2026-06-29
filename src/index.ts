@@ -22,6 +22,7 @@ export * from "./types.js";
 export * from "./storage.js";
 export * from "./executors/local-shell.js";
 export * from "./executors/typescript.js";
+export * from "./project-dashboard.js";
 
 export interface ActionsClientOptions {
   store?: ActionsStore;

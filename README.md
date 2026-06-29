@@ -225,6 +225,22 @@ actions are registered in-process by the host application.
   action plans with rollback or compensating-action metadata.
 - `open-events`: receive audit events emitted by `ActionsClient` audit sinks.
 
+## Project Dashboard Boundary
+
+Project dashboards should render actions as server-issued capabilities, not as
+shell commands or direct SDK calls. Use `projectActionCapability(manifest)` to
+derive a view-safe object for the dashboard. The projection includes labels,
+risk, scope, dry-run support, approval requirements, audit/evidence fields, and
+blockers. It intentionally omits executor bindings, commands, environment, and
+raw implementation details.
+
+V1 dashboards are read-only by default. A mutation-capable action is available
+only when the manifest supports dry-run preview, defaults to dry-run, includes a
+preview audit event, has a confirmation title, and defines an approval policy
+for medium/high/critical risk. The dashboard should request a server-side
+dry-run first, then use the returned run id for explicit confirmation and
+approval. It should never execute arbitrary commands from rendered JSON.
+
 ## Storage
 
 Default local data directory:
