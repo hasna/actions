@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { Command } from "commander";
-import type { ActionManifest, ActorRef } from "../types.js";
+import { ProjectPanelSchema, SCHEMA_IDS } from "@hasna/contracts/schemas";
+import type { ActionManifest, ActionRun, ActorRef, JsonObject, RiskLevel } from "../types.js";
 import { ActionsClient, assertManifest, createLocalShellAction } from "../index.js";
 import { JsonActionsStore, getActionsStatus } from "../storage.js";
 import {
@@ -79,6 +80,92 @@ function jsonList<T>(items: T[], options: { limit?: number; cursor?: string }): 
   return paginate(items, { limit: options.limit, cursor: options.cursor }).items;
 }
 
+function metadataProjectId(metadata: JsonObject | undefined): string | undefined {
+  const value = metadata?.["projectId"] ?? metadata?.["project"] ?? metadata?.["project_id"];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function manifestMatchesProject(manifest: ActionManifest, project: string): boolean {
+  const explicitProject = metadataProjectId(manifest.metadata);
+  if (explicitProject) return explicitProject === project;
+  return manifest.scope.level === "project" && (manifest.resource.identifiers ?? []).includes(project);
+}
+
+function runMatchesProject(run: ActionRun, project: string, projectActionIds: Set<string>): boolean {
+  const explicitProject = metadataProjectId(run.metadata);
+  if (explicitProject) return explicitProject === project;
+  return projectActionIds.has(run.actionId);
+}
+
+function riskPriority(riskLevel: RiskLevel): "low" | "medium" | "high" | "critical" {
+  return riskLevel;
+}
+
+async function buildProjectPanel(client: ActionsClient, project: string, limit: number) {
+  const generatedAt = new Date().toISOString();
+  const manifests = (await client.listManifests()).filter((manifest) => manifestMatchesProject(manifest, project));
+  const projectActionIds = new Set(manifests.map((manifest) => manifest.id));
+  const runs = (await client.listRuns()).filter((run) => runMatchesProject(run, project, projectActionIds));
+  const actionItems = manifests.slice(0, limit).map((manifest) => ({
+    id: `action:${manifest.id}`,
+    title: manifest.name,
+    summary: truncateText(manifest.description, 160),
+    status: `${manifest.riskLevel}; ${manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"}`,
+    priority: riskPriority(manifest.riskLevel),
+    resourceRefs: [{
+      kind: "action" as const,
+      id: manifest.id,
+      name: manifest.name,
+      uri: `dashboard://actions/${encodeURIComponent(manifest.id)}?version=${encodeURIComponent(manifest.version)}`,
+      tags: [manifest.riskLevel, manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"],
+    }],
+  }));
+  const remaining = Math.max(0, limit - actionItems.length);
+  const runItems = runs.slice(0, remaining).map((run) => ({
+    id: `run:${run.id}`,
+    title: `${run.status} ${run.actionId}`,
+    summary: `Action run ${run.id} for ${run.actionId}@${run.actionVersion}`,
+    status: run.status,
+    priority: riskPriority(run.riskLevel),
+    timestamp: run.updatedAt,
+    resourceRefs: [
+      { kind: "run" as const, id: run.id, name: run.id, uri: `dashboard://actions/runs/${encodeURIComponent(run.id)}`, tags: [run.status] },
+      { kind: "action" as const, id: run.actionId, name: run.actionId, uri: `dashboard://actions/${encodeURIComponent(run.actionId)}?version=${encodeURIComponent(run.actionVersion)}`, tags: [run.riskLevel] },
+    ],
+  }));
+
+  return ProjectPanelSchema.parse({
+    schema: SCHEMA_IDS.projectPanel,
+    id: `actions_panel_${project}`,
+    createdAt: generatedAt,
+    projectId: project,
+    provider: {
+      kind: "actions",
+      id: "open-actions",
+      name: "Actions",
+      sourcePackage: "@hasna/actions",
+    },
+    kind: "actions",
+    title: "Actions",
+    summary: "Project-scoped action manifests and recent action runs.",
+    state: manifests.length || runs.length ? "ready" : "empty",
+    generatedAt,
+    freshness: "fresh",
+    metrics: [
+      { id: "actions", label: "Actions", value: manifests.length, status: manifests.length ? "good" : "unknown" },
+      { id: "recent_runs", label: "Recent Runs", value: runs.length, status: runs.length ? "good" : "unknown" },
+    ],
+    items: [...actionItems, ...runItems],
+    actions: manifests.slice(0, limit).map((manifest) => ({
+      kind: "action" as const,
+      id: manifest.id,
+      name: manifest.name,
+      uri: `dashboard://actions/${encodeURIComponent(manifest.id)}?version=${encodeURIComponent(manifest.version)}`,
+      tags: [manifest.riskLevel, manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"],
+    })),
+  });
+}
+
 export function createProgram(): Command {
   const program = new Command();
   program.name("actions").description("Typed, auditable action contracts for agentic software").version(ACTIONS_VERSION);
@@ -92,6 +179,19 @@ export function createProgram(): Command {
     .action(async (options: { verbose?: boolean; json?: boolean }) => {
       const status = await getActionsStatus(program.opts<{ dir?: string }>().dir);
       output(options.json, status, () => formatStatus(status, { verbose: options.verbose }));
+    });
+
+  program
+    .command("project-panel")
+    .description("Emit a bounded project dashboard panel for action manifests and runs")
+    .requiredOption("--project <slug>", "Project slug")
+    .option("--limit <n>", `Limit panel items (default ${DEFAULT_LIST_LIMIT})`, parsePositiveIntOption)
+    .option("--contract", "Validate and emit the hasna.project_panel.v1 contract", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (options: { project: string; limit?: number; contract?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const panel = await buildProjectPanel(client, options.project, options.limit ?? DEFAULT_LIST_LIMIT);
+      output(options.json, panel, () => `actions panel ${options.project}: ${panel.metrics[0]?.value ?? 0} actions, ${panel.metrics[1]?.value ?? 0} recent runs`);
     });
 
   const manifests = program.command("manifests").description("Manage action manifests");

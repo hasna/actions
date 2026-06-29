@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { ProjectPanelSchema } from "@hasna/contracts/schemas";
 import { runActionsCli } from "./index.js";
 import { JsonActionsStore } from "../storage.js";
 import type { ActionManifest, ActionRun } from "../types.js";
@@ -93,6 +94,42 @@ async function captureCli(dir: string, args: string[]): Promise<string> {
 }
 
 describe("actions CLI compact output", () => {
+  test("emits a bounded project dashboard panel contract", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "actions-cli-panel-"));
+    try {
+      const store = new JsonActionsStore(dir);
+      const projectManifest = {
+        ...manifest("examples.project.refresh"),
+        name: "Refresh project artifact",
+        metadata: { projectId: "swiss-bank-account" },
+        scope: { level: "project" as const, permissions: ["dashboard:write"], boundaries: ["swiss-bank-account"] },
+        resource: { type: "dashboard", identifiers: ["swiss-bank-account"] },
+      };
+      await store.saveManifest(projectManifest);
+      await store.saveManifest({ ...manifest("examples.other"), metadata: { projectId: "other-project" } });
+      await store.createRun({
+        ...runRecord(0),
+        actionId: projectManifest.id,
+        actionVersion: projectManifest.version,
+        input: { name: "swiss-bank-account", payload: longText },
+        output: { message: longText },
+        metadata: { projectId: "swiss-bank-account" },
+      });
+
+      const json = await captureCli(dir, ["project-panel", "--project", "swiss-bank-account", "--json", "--contract"]);
+      const panel = ProjectPanelSchema.parse(JSON.parse(json));
+
+      expect(panel.schema).toBe("hasna.project_panel.v1");
+      expect(panel.provider.kind).toBe("actions");
+      expect(panel.projectId).toBe("swiss-bank-account");
+      expect(panel.items.map((item) => item.id)).toEqual(expect.arrayContaining(["action:examples.project.refresh", "run:run-00"]));
+      expect(panel.items.map((item) => item.id)).not.toContain("action:examples.other");
+      expect(JSON.stringify(panel)).not.toContain(longText);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("caps runs list human output while keeping --json full fidelity", async () => {
     const dir = mkdtempSync(join(tmpdir(), "actions-cli-"));
     try {
