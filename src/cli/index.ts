@@ -15,6 +15,7 @@ import {
   parsePositiveIntOption,
   truncateText,
 } from "../presentation.js";
+import { ACTIONS_VERSION } from "../version.js";
 
 export interface RunActionsCliOptions {
   programName?: string;
@@ -80,7 +81,7 @@ function jsonList<T>(items: T[], options: { limit?: number; cursor?: string }): 
 
 export function createProgram(): Command {
   const program = new Command();
-  program.name("actions").description("Typed, auditable action contracts for agentic software").version("0.1.0");
+  program.name("actions").description("Typed, auditable action contracts for agentic software").version(ACTIONS_VERSION);
   program.option("--dir <path>", "Override local actions data directory");
 
   program

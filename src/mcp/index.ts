@@ -2,6 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ActionsClient } from "../index.js";
+import { ACTIONS_VERSION } from "../version.js";
 import { TOOLS, type ToolDeps } from "./tools.js";
 
 export interface CreateServerOptions {
@@ -9,7 +10,7 @@ export interface CreateServerOptions {
 }
 
 export function createServer(options: CreateServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "actions", version: "0.1.0" });
+  const server = new McpServer({ name: "actions", version: ACTIONS_VERSION });
   const deps = options.deps ?? { client: new ActionsClient() };
 
   for (const tool of TOOLS) {
