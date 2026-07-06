@@ -20,6 +20,72 @@ export const ACTION_BINDING_KINDS = [
 
 export type ActionBindingKind = (typeof ACTION_BINDING_KINDS)[number];
 
+export const ACTION_SIDE_EFFECT_CLASSES = [
+  "none",
+  "read",
+  "write",
+  "delete",
+  "external",
+  "financial",
+  "identity",
+] as const;
+
+export type ActionSideEffectClass = (typeof ACTION_SIDE_EFFECT_CLASSES)[number];
+
+export const ACTION_GRANT_KINDS = [
+  "tenant",
+  "user",
+  "service",
+  "oauth",
+  "secret",
+  "network",
+  "filesystem",
+  "command",
+  "approval",
+] as const;
+
+export type ActionGrantKind = (typeof ACTION_GRANT_KINDS)[number];
+
+export const ACTION_DRY_RUN_CAPABILITIES = [
+  "none",
+  "input-validation",
+  "effect-preview",
+  "effect-preview-and-policy",
+] as const;
+
+export type ActionDryRunCapability = (typeof ACTION_DRY_RUN_CAPABILITIES)[number];
+
+export const ACTION_APPROVAL_HOOK_STAGES = [
+  "before-preview",
+  "before-approval",
+  "after-decision",
+  "before-execute",
+] as const;
+
+export type ActionApprovalHookStage = (typeof ACTION_APPROVAL_HOOK_STAGES)[number];
+
+export const ACTION_EXECUTION_MODES = [
+  "sync",
+  "async",
+  "queued",
+] as const;
+
+export type ActionExecutionMode = (typeof ACTION_EXECUTION_MODES)[number];
+
+export const ACTION_AUDIT_EVENT_FIELDS = [
+  "id",
+  "source",
+  "type",
+  "actionId",
+  "invocationId",
+  "runId",
+  "time",
+  "actor",
+  "data",
+] as const;
+
+export type ActionAuditEventField = (typeof ACTION_AUDIT_EVENT_FIELDS)[number];
+
 export const ACTION_RUN_STATUSES = [
   "pending",
   "queued",
@@ -58,7 +124,45 @@ export type ApprovalDecisionStatus = "pending" | "approved" | "rejected" | "expi
 export type ActionRiskLevel = "low" | "medium" | "high" | "critical";
 export type RetryStrategy = "none" | "fixed" | "exponential";
 
+export interface ActionProviderIdentity {
+  id: string;
+  name: string;
+  version?: string;
+  url?: string;
+  supportUrl?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionSideEffectClassification {
+  classification: ActionSideEffectClass;
+  resources?: string[];
+  externalSystems?: string[];
+  reversible?: boolean;
+  description?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionGrantRequirement {
+  kind: ActionGrantKind;
+  resource: string;
+  operations?: string[];
+  scope?: string;
+  reason?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionExecutionBindingMetadata {
+  mode: ActionExecutionMode;
+  runner?: string;
+  entrypoint?: string;
+  timeoutMs?: number;
+  requiresNetwork?: boolean;
+  sandboxProfile?: string;
+  metadata?: JsonObject;
+}
+
 export interface ActionBinding {
+  id?: string;
   kind: ActionBindingKind;
   name?: string;
   command?: string;
@@ -73,6 +177,7 @@ export interface ActionBinding {
   toolName?: string;
   workflowRef?: string;
   timeoutMs?: number;
+  execution?: ActionExecutionBindingMetadata;
   metadata?: JsonObject;
 }
 
@@ -86,6 +191,8 @@ export interface IdempotencyContract {
 
 export interface DryRunContract {
   supported: boolean;
+  capability: ActionDryRunCapability;
+  required?: boolean;
   defaultMode?: "preview-only" | "preview-and-policy" | "execute";
   outputSchema?: ActionSchema;
 }
@@ -95,7 +202,17 @@ export interface ApprovalRequirement {
   requiresApproval: boolean;
   reason?: string;
   approverKinds?: Array<"human" | "policy" | "system">;
+  policyRefs?: string[];
+  hooks?: ApprovalPolicyHook[];
   timeoutSeconds?: number;
+}
+
+export interface ApprovalPolicyHook {
+  id: string;
+  stage: ActionApprovalHookStage;
+  ref: string;
+  failClosed?: boolean;
+  metadata?: JsonObject;
 }
 
 export interface ApprovalDecision {
@@ -155,8 +272,17 @@ export interface RetryPolicy {
   multiplier?: number;
 }
 
+export interface AuditEventShape {
+  type: string;
+  dataSchema?: ActionSchema;
+  requiredFields?: ActionAuditEventField[];
+  metadata?: JsonObject;
+}
+
 export interface AuditContract {
-  eventSource?: string;
+  eventSource: string;
+  events: AuditEventShape[];
+  requiredFields?: ActionAuditEventField[];
   includeInput?: boolean;
   includeOutput?: boolean;
   redactPaths?: string[];
@@ -174,17 +300,20 @@ export interface ActionManifest<
   namespace?: string;
   title?: string;
   description?: string;
+  provider: ActionProviderIdentity;
   inputSchema?: TInputSchema;
   outputSchema?: TOutputSchema;
+  sideEffects: ActionSideEffectClassification;
+  requiredGrants: ActionGrantRequirement[];
   bindings: ActionBinding[];
   idempotency?: IdempotencyContract;
-  dryRun?: DryRunContract;
-  approval?: ApprovalRequirement;
+  dryRun: DryRunContract;
+  approval: ApprovalRequirement;
   policy?: ActionPolicy;
   secrets?: SecretReference[];
   sandbox?: SandboxRequirement;
   retry?: RetryPolicy;
-  audit?: AuditContract;
+  audit: AuditContract;
   metadata?: JsonObject;
 }
 

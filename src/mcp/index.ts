@@ -13,6 +13,11 @@ export interface ActionsMcpTool {
   annotations: {
     actionId: string;
     actionVersion: string;
+    provider: string;
+    providerVersion?: string;
+    sideEffectClass: string;
+    requiredGrantKinds: string[];
+    requiredGrantCount: number;
     dryRunSupported: boolean;
     requiresApproval: boolean;
     idempotencyRequired: boolean;
@@ -36,6 +41,11 @@ export function actionManifestToMcpTool(input: unknown): ActionsMcpTool {
     annotations: {
       actionId: manifest.id,
       actionVersion: manifest.version,
+      provider: manifest.provider.id,
+      providerVersion: manifest.provider.version,
+      sideEffectClass: manifest.sideEffects.classification,
+      requiredGrantKinds: [...new Set(manifest.requiredGrants.map((grant) => grant.kind))],
+      requiredGrantCount: manifest.requiredGrants.length,
       dryRunSupported: manifest.dryRun?.supported ?? false,
       requiresApproval: manifest.approval?.requiresApproval ?? false,
       idempotencyRequired: manifest.idempotency?.required ?? false,
