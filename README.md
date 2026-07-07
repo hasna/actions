@@ -36,7 +36,9 @@ claiming, retrying, replaying, and storing durable run state.
 
 Core contract pieces:
 
-- `ActionManifest`: action identity, version, schemas, bindings, and policy.
+- `ActionManifest`: action identity, version, provider identity, schemas,
+  side-effect classification, required grants, executable bindings, dry-run
+  capability, approval hooks, audit event shape, and policy.
 - `ActionInvocation`: one requested execution with actor, input, dry-run flag,
   and idempotency key.
 - `ActionRunStatus`: canonical lifecycle status, including `dead` for DLQ.
@@ -48,6 +50,28 @@ Core contract pieces:
 
 Supported binding kinds are `cli`, `http`, `mcp`, `sdk`, `workflow`, and
 `agent`. A manifest must include at least one binding.
+
+Required `ActionManifest` package contract fields:
+
+- `provider`: stable owner identity with `id`, `name`, and optional provider
+  `version`.
+- `sideEffects`: one classification from `none`, `read`, `write`, `delete`,
+  `external`, `financial`, or `identity`, plus optional resources and external
+  systems.
+- `requiredGrants`: an array of grants the executor must hold before execution.
+  Use an empty array only for actions that require no grants.
+- `bindings`: one or more executable bindings. Bindings may include
+  `execution` metadata such as sync/async/queued mode, runner, timeout, network
+  requirement, and sandbox profile.
+- `dryRun`: whether previewing is supported and which capability level is
+  available.
+- `approval`: the approval mode and any policy hook references that gate preview
+  or execution.
+- `audit`: the event source, required audit fields, and emitted audit event
+  shapes.
+
+Secrets in manifests are references only. Use `secrets[].ref`; never embed raw
+credential values.
 
 ## CLI
 

@@ -17,6 +17,35 @@ describe("action manifest contracts", () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.manifest?.id).toBe("tickets.create");
+    expect(result.manifest).toMatchObject({
+      provider: { id: "hasna.support", name: "Hasna Support" },
+      sideEffects: { classification: "write" },
+      requiredGrants: [{ kind: "service", resource: "tickets" }],
+      dryRun: { supported: true, capability: "effect-preview-and-policy" },
+      approval: { mode: "preview", hooks: [{ stage: "before-preview" }] },
+      audit: { eventSource: "hasna.actions" },
+    });
+    expect(result.manifest?.audit.events.map((event) => event.type)).toContain("action.invocation.created");
+  });
+
+  test("requires the core package contract fields", () => {
+    const result = validateActionManifest({
+      schemaVersion: "1.0",
+      id: "minimal.action",
+      name: "minimal.action",
+      version: "1.0.0",
+      bindings: [{ kind: "cli", command: "minimal" }],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual(expect.arrayContaining([
+      "provider.required",
+      "side_effects.required",
+      "required_grants.required",
+      "dry_run.required",
+      "approval.required",
+      "audit.required",
+    ]));
   });
 
   test("rejects manifests without bindings and raw secret values", () => {
@@ -52,6 +81,84 @@ describe("action manifest contracts", () => {
     expect(result.errors.map((error) => error.code)).toContain("binding.sdk.export");
     expect(result.errors.map((error) => error.code)).toContain("binding.workflow.ref");
     expect(result.errors.map((error) => error.code)).toContain("binding.agent.target");
+  });
+
+  test("rejects invalid provider, grants, dry-run, approval, audit, and binding metadata", () => {
+    const result = validateActionManifest({
+      ...exampleActionManifest(),
+      provider: { id: "", name: "" },
+      sideEffects: { classification: "mystery", resources: ["ticket", 1], reversible: "sometimes" },
+      requiredGrants: [{ kind: "root" }],
+      bindings: [
+        {
+          kind: "cli",
+          command: "tickets",
+          timeoutMs: 0,
+          execution: {
+            mode: "fork",
+            timeoutMs: -1,
+            requiresNetwork: "yes",
+          },
+        },
+      ],
+      dryRun: {
+        supported: true,
+        capability: "none",
+        required: "yes",
+        outputSchema: "bad",
+      },
+      approval: {
+        mode: "manual",
+        requiresApproval: true,
+        policyRefs: ["policy://ok", 1],
+        hooks: [{ id: "", stage: "late", ref: "", failClosed: "yes" }],
+      },
+      policy: {
+        risk: "medium",
+        hooks: [{ id: "hook", kind: "during", ref: "policy://bad" }],
+      },
+      audit: {
+        eventSource: "",
+        requiredFields: ["id", "not-a-field"],
+        events: [
+          {
+            type: "",
+            dataSchema: "bad",
+            requiredFields: ["also-bad"],
+          },
+        ],
+        includeInput: "yes",
+        redactPaths: ["input.secret", 2],
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual(expect.arrayContaining([
+      "id.required",
+      "name.required",
+      "side_effects.classification",
+      "resources.string",
+      "side_effects.reversible",
+      "required_grant.kind",
+      "resource.required",
+      "binding.timeout_ms",
+      "binding.execution.mode",
+      "binding.execution.timeout_ms",
+      "binding.execution.requires_network",
+      "dry_run.capability_conflict",
+      "dry_run.required_flag",
+      "dry_run.output_schema",
+      "policyRefs.string",
+      "approval_hook.stage",
+      "approval_hook.fail_closed",
+      "policy_hook.kind",
+      "eventSource.required",
+      "audit.field",
+      "type.required",
+      "audit_event.data_schema",
+      "audit.include_input",
+      "redactPaths.string",
+    ]));
   });
 
   test("derives idempotency keys from templates or stable input", () => {

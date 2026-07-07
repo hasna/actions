@@ -147,9 +147,14 @@ function buildStatus(): Record<string, unknown> {
     terminalStatuses: TERMINAL_ACTION_RUN_STATUSES,
     capabilities: {
       manifestValidation: true,
+      providerIdentity: true,
+      sideEffectClassification: true,
+      requiredGrants: true,
       dryRunContracts: true,
       idempotencyContracts: true,
       approvalContracts: true,
+      auditEventShapes: true,
+      executionBindingMetadata: true,
       mcpCatalog: true,
     },
   };

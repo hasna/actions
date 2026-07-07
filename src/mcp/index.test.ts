@@ -23,6 +23,10 @@ describe("actions MCP skeleton", () => {
       annotations: {
         actionId: "tickets.create",
         actionVersion: "1.0.0",
+        provider: "hasna.support",
+        sideEffectClass: "write",
+        requiredGrantKinds: ["service"],
+        requiredGrantCount: 1,
         dryRunSupported: true,
         idempotencyRequired: true,
       },
