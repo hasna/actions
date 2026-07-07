@@ -43,7 +43,7 @@ describe("actions CLI", () => {
     expect(JSON.parse(status.stdout)).toMatchObject({
       service: "actions",
       package: "@hasna/actions",
-      capabilities: { manifestValidation: true, mcpCatalog: true, contractAdapters: true },
+      capabilities: { manifestValidation: true, mcpCatalog: true },
     });
   });
 

@@ -192,7 +192,6 @@ function buildStatus(): Record<string, unknown> {
       dryRunContracts: true,
       idempotencyContracts: true,
       approvalContracts: true,
-      contractAdapters: true,
       mcpCatalog: true,
     },
   };
