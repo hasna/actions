@@ -26,6 +26,7 @@ describe("contract adapters", () => {
       type: "user",
       displayName: "Pat Reviewer",
       tenantId: "tenant_hasna",
+      metadata: { role: "approver" },
     };
 
     const ref = actionActorToActorRef(actor, { createdAt });
@@ -39,8 +40,33 @@ describe("contract adapters", () => {
       metadata: {
         originalActionActorType: "user",
         tenantId: "tenant_hasna",
+        actorMetadataRedacted: true,
+        actorMetadataKeys: ["role"],
       },
     });
+  });
+
+  test("redacts ActionActor metadata values from actor_ref", () => {
+    const actor: ActionActor = {
+      id: "user_secret",
+      type: "user",
+      displayName: "Sensitive Actor",
+      metadata: {
+        publicHint: "safe-key-name-only",
+        secret: "do-not-copy-actor-secret",
+        token: "do-not-copy-actor-token",
+      },
+    };
+
+    const ref = actionActorToActorRef(actor, { createdAt });
+    const serialized = JSON.stringify(ref);
+
+    expect(ref.metadata).toMatchObject({
+      actorMetadataRedacted: true,
+      actorMetadataKeys: ["publicHint", "secret", "token"],
+    });
+    expect(serialized).not.toContain("do-not-copy");
+    expect(serialized).not.toContain("safe-key-name-only");
   });
 
   test("documents every ActionActor kind to actor_ref kind mapping", () => {
@@ -98,6 +124,7 @@ describe("contract adapters", () => {
       decidedBy: actor,
       reason: "Rejected by policy.",
       evidenceRef: "approval-log-123",
+      metadata: { reviewerNote: "do-not-copy-decision-metadata" },
     };
 
     const envelope = approvalDecisionToDecisionEnvelope(decision, {
@@ -112,13 +139,18 @@ describe("contract adapters", () => {
       status: "denied",
       evidenceRefs: [{ id: "evidence_approval-log-123" }],
       obligations: ["do-not-execute-action"],
-      metadata: { originalApprovalDecisionStatus: "rejected" },
+      metadata: {
+        originalApprovalDecisionStatus: "rejected",
+        approvalDecisionMetadataRedacted: true,
+        approvalDecisionMetadataKeys: ["reviewerNote"],
+      },
     });
     expect(evidence).toMatchObject({
       schema: SCHEMA_IDS.evidenceRef,
       uri: "artifact://actions/evidence/approval-log-123",
       metadata: { originalEvidenceRef: "approval-log-123" },
     });
+    expect(JSON.stringify(envelope)).not.toContain("do-not-copy");
   });
 
   test("maps ActionRun to work_run and preserves the original status", () => {

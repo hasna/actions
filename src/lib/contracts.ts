@@ -141,10 +141,11 @@ export function actionActorToActorRef(actor: ActionActor, options: ContractAdapt
     name: actor.displayName,
     capabilities: actor.type === "agent" ? ["action-execution"] : [],
     metadata: pruneUndefined({
-      ...actor.metadata,
       sourcePackage: ACTIONS_CONTRACT_SOURCE_PACKAGE,
       originalActionActorType: actor.type,
       tenantId: actor.tenantId,
+      actorMetadataRedacted: hasOwnMetadata(actor.metadata),
+      actorMetadataKeys: metadataKeys(actor.metadata),
     }),
   };
 
@@ -203,10 +204,11 @@ export function approvalDecisionToDecisionEnvelope(
     obligations,
     evidenceRefs: evidence,
     metadata: pruneUndefined({
-      ...decision.metadata,
       sourcePackage: ACTIONS_CONTRACT_SOURCE_PACKAGE,
       originalApprovalDecisionStatus: decision.status,
       originalEvidenceRef: decision.evidenceRef,
+      approvalDecisionMetadataRedacted: hasOwnMetadata(decision.metadata),
+      approvalDecisionMetadataKeys: metadataKeys(decision.metadata),
       requestedByActionActorType: decision.requestedBy?.type,
       requestedByTenantId: decision.requestedBy?.tenantId,
       decidedByActionActorType: decision.decidedBy?.type,

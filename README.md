@@ -84,13 +84,14 @@ Mapping notes:
 - `ApprovalDecision.status` maps `pending -> approval_required`,
   `approved -> allowed`, `rejected|expired -> denied`, and
   `cancelled -> skipped`.
-- `ActionInvocation`, `ActionRun` result/error details, and `DryRunContract` do
-  not have exact one-to-one fields in `work_run.v1` or `capability_card.v1`;
-  ids, idempotency-key redaction markers, dry-run constraints, status, retry
-  counters, safe error codes, and redaction markers are preserved in metadata and
-  capability/constraint fields. Raw invocation input, result output, arbitrary
-  runtime metadata, idempotency keys, error objects, and dead-letter objects are
-  not copied into shared contract metadata by default.
+- `ActionInvocation`, `ActionRun` result/error details, `ActionActor.metadata`,
+  `ApprovalDecision.metadata`, and `DryRunContract` do not have exact one-to-one
+  fields in the shared schemas; ids, idempotency-key redaction markers, dry-run
+  constraints, status, retry counters, safe error codes, metadata key names, and
+  redaction markers are preserved in metadata and capability/constraint fields.
+  Raw invocation input, result output, arbitrary runtime metadata, idempotency
+  keys, error objects, approval metadata values, actor metadata values, and
+  dead-letter objects are not copied into shared contract metadata by default.
 
 ```ts
 import {
