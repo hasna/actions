@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ACTION_RUN_STATUSES, TERMINAL_ACTION_RUN_STATUSES } from "../types.js";
 import { exampleActionManifest, validateActionManifest } from "../manifest.js";
+import { createActionsCliCapabilityCard, createExampleActionContracts } from "../lib/contracts.js";
 import { ACTIONS_MCP_CAPABILITIES } from "../mcp/capabilities.js";
 
 interface ParsedArgs {
@@ -46,6 +47,10 @@ export async function runActionsCli(argv = Bun.argv.slice(2), options: RunAction
       return runValidateCommand(parsed);
     }
 
+    if (command === "contracts") {
+      return runContractsCommand(parsed, options);
+    }
+
     if (command === "mcp") {
       return runMcpCommand(parsed, options);
     }
@@ -73,6 +78,43 @@ function runManifestCommand(parsed: ParsedArgs, options: RunActionsCliOptions): 
     return 0;
   }
   throw new Error(`Unknown manifest command: ${subcommand}`);
+}
+
+function runContractsCommand(parsed: ParsedArgs, options: RunActionsCliOptions): number {
+  const subcommand = parsed.rest[1];
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printContractsHelp(options);
+    return 0;
+  }
+
+  const examples = createExampleActionContracts({ createdAt: "2026-06-28T00:00:00.000Z" });
+  if (subcommand === "examples") {
+    output(parsed, examples, () => console.log(JSON.stringify(examples, null, 2)));
+    return 0;
+  }
+  if (subcommand === "actor-ref") {
+    output(parsed, examples.actorRef, () => console.log(JSON.stringify(examples.actorRef, null, 2)));
+    return 0;
+  }
+  if (subcommand === "evidence-ref") {
+    output(parsed, examples.evidenceRef, () => console.log(JSON.stringify(examples.evidenceRef, null, 2)));
+    return 0;
+  }
+  if (subcommand === "decision-envelope") {
+    output(parsed, examples.decisionEnvelope, () => console.log(JSON.stringify(examples.decisionEnvelope, null, 2)));
+    return 0;
+  }
+  if (subcommand === "work-run") {
+    output(parsed, examples.workRun, () => console.log(JSON.stringify(examples.workRun, null, 2)));
+    return 0;
+  }
+  if (subcommand === "capability-card") {
+    const card = createActionsCliCapabilityCard({ createdAt: "2026-06-28T00:00:00.000Z", version: packageVersion() });
+    output(parsed, card, () => console.log(JSON.stringify(card, null, 2)));
+    return 0;
+  }
+
+  throw new Error(`Unknown contracts command: ${subcommand}`);
 }
 
 function runValidateCommand(parsed: ParsedArgs): number {
@@ -150,6 +192,7 @@ function buildStatus(): Record<string, unknown> {
       dryRunContracts: true,
       idempotencyContracts: true,
       approvalContracts: true,
+      contractAdapters: true,
       mcpCatalog: true,
     },
   };
@@ -163,6 +206,8 @@ Usage:
   ${name} [--json] status
   ${name} [--json] manifest example
   ${name} [--json] validate <manifest.json>
+  ${name} [--json] contracts examples
+  ${name} [--json] contracts capability-card
   ${name} [--json] mcp capabilities`);
 }
 
@@ -172,6 +217,19 @@ function printManifestHelp(options: RunActionsCliOptions = {}): void {
 
 Usage:
   ${name} [--json] manifest example`);
+}
+
+function printContractsHelp(options: RunActionsCliOptions = {}): void {
+  const name = programName(options);
+  console.log(`${name} contracts
+
+Usage:
+  ${name} [--json] contracts examples
+  ${name} [--json] contracts actor-ref
+  ${name} [--json] contracts evidence-ref
+  ${name} [--json] contracts decision-envelope
+  ${name} [--json] contracts work-run
+  ${name} [--json] contracts capability-card`);
 }
 
 function printMcpHelp(options: RunActionsCliOptions = {}): void {

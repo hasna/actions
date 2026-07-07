@@ -1,0 +1,36 @@
+{
+  "schema": "hasna.decision_envelope.v1",
+  "id": "approval_123",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:01:00.000Z",
+  "decisionType": "approval",
+  "status": "allowed",
+  "actor": {
+    "kind": "human",
+    "id": "user_123",
+    "name": "Pat Reviewer"
+  },
+  "selected": [
+    {
+      "kind": "action",
+      "id": "action_tickets.create_1.0.0",
+      "name": "tickets.create",
+      "externalId": "tickets.create",
+      "sourcePackage": "@hasna/actions",
+      "tags": ["version:1.0.0"]
+    }
+  ],
+  "reason": "Approved after dry-run preview.",
+  "evidenceRefs": [
+    {
+      "id": "evidence_approval_123",
+      "kind": "artifact",
+      "uri": "artifact://actions/evidence/approval_123",
+      "summary": "Approval evidence."
+    }
+  ],
+  "metadata": {
+    "sourcePackage": "@hasna/actions",
+    "originalApprovalDecisionStatus": "approved"
+  }
+}

@@ -56,6 +56,42 @@ actions --help
 actions --json status
 actions --json manifest example
 actions validate manifest.json
+actions --json contracts examples
+```
+
+## `@hasna/contracts` Adapters
+
+The package exports additive adapters for `hasna.actor_ref.v1`,
+`hasna.evidence_ref.v1`, `hasna.work_run.v1`,
+`hasna.decision_envelope.v1`, and `hasna.capability_card.v1`. Adapter output is
+validated with `parseContract` from `@hasna/contracts`.
+
+Mapping notes:
+
+- `ActionActor.type` maps `user -> human`, `agent -> agent`,
+  `system -> system`, and `service -> service`. The original action actor type
+  remains in contract metadata, either as `metadata.originalActionActorType` on
+  full actor refs or as `metadata.*ActionActorType` fields on enclosing
+  `decision_envelope` and `work_run` payloads whose actor fields are pointers.
+- `ActionRunStatus` maps `pending|queued|waiting_approval -> pending`,
+  `claimed|running|retrying -> running`, `succeeded -> succeeded`,
+  `failed|dead -> failed`, `cancelled -> cancelled`, and `skipped -> skipped`.
+  The original action status remains in `metadata.originalActionRunStatus`.
+- `ApprovalDecision.evidenceRef` is a string, while `evidence_ref.v1` requires a
+  URI. Existing URI-shaped values are preserved; other values are represented as
+  `artifact://actions/evidence/<encoded-ref>` with the original string in
+  metadata.
+- `ActionInvocation`, `ActionRun` result/error details, and `DryRunContract` do
+  not have exact one-to-one fields in `work_run.v1` or `capability_card.v1`;
+  input, idempotency, result/error, and dry-run details are preserved in
+  metadata and capability/constraint fields.
+
+```ts
+import {
+  actionActorToActorRef,
+  actionRunToWorkRun,
+  createActionsCliCapabilityCard,
+} from "@hasna/actions";
 ```
 
 ## MCP Skeleton

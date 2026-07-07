@@ -1,0 +1,7 @@
+{
+  "schema": "hasna.capability_card.v1",
+  "id": "capability_actions_cli",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "kind": "cli",
+  "name": "actions CLI"
+}

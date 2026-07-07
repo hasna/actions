@@ -1,0 +1,6 @@
+{
+  "schema": "hasna.actor_ref.v1",
+  "id": "user_123",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "kind": "user"
+}

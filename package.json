@@ -30,6 +30,7 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
     "LICENSE",
     "SECURITY.md",
@@ -39,7 +40,8 @@
     "build": "rm -rf dist && bun build src/cli/index.ts src/mcp/index.ts src/index.ts src/types.ts src/manifest.ts --outdir dist --target bun --packages external && chmod +x dist/cli/index.js dist/mcp/index.js && tsc -p tsconfig.build.json --emitDeclarationOnly --outDir dist",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "prepublishOnly": "bun run test && bun run build"
+    "contracts:conformance": "contracts conformance examples",
+    "prepublishOnly": "bun run test && bun run contracts:conformance && bun run build"
   },
   "keywords": [
     "actions",
@@ -71,5 +73,8 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
     "access": "public"
+  },
+  "dependencies": {
+    "@hasna/contracts": "^0.2.2"
   }
 }

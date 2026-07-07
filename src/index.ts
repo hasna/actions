@@ -1,4 +1,5 @@
 export * from "./types.js";
+export * from "./lib/contracts.js";
 export {
   ActionManifestValidationException,
   assertActionRunStatus,

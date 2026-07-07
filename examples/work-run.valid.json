@@ -1,0 +1,47 @@
+{
+  "schema": "hasna.work_run.v1",
+  "id": "run_123",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:02:00.000Z",
+  "objective": "Execute action tickets.create.",
+  "status": "succeeded",
+  "actor": {
+    "kind": "human",
+    "id": "user_123",
+    "name": "Pat Reviewer"
+  },
+  "traceId": "run_123",
+  "startedAt": "2026-06-28T00:00:45.000Z",
+  "finishedAt": "2026-06-28T00:02:00.000Z",
+  "constraints": ["dry-run-requested"],
+  "resourceRefs": [
+    {
+      "kind": "action",
+      "id": "action_tickets.create_1.0.0",
+      "name": "tickets.create",
+      "externalId": "tickets.create",
+      "sourcePackage": "@hasna/actions",
+      "tags": ["version:1.0.0"]
+    },
+    {
+      "kind": "run",
+      "id": "run_run_123",
+      "name": "Action run run_123",
+      "externalId": "run_123",
+      "sourcePackage": "@hasna/actions"
+    }
+  ],
+  "evidenceRefs": [
+    {
+      "id": "run_123_result",
+      "kind": "artifact",
+      "summary": "Created ticket TCK-123."
+    }
+  ],
+  "metadata": {
+    "sourcePackage": "@hasna/actions",
+    "originalActionRunStatus": "succeeded",
+    "attempt": 1,
+    "maxAttempts": 3
+  }
+}

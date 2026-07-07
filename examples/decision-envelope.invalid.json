@@ -1,0 +1,8 @@
+{
+  "schema": "hasna.decision_envelope.v1",
+  "id": "decision_missing_selected",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "decisionType": "approval",
+  "status": "selected",
+  "reason": "Selected status must identify selected resources."
+}

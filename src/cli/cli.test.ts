@@ -36,13 +36,14 @@ describe("actions CLI", () => {
     expect(help.stderr).toBe("");
     expect(help.stdout).toContain("actions");
     expect(help.stdout).toContain("validate <manifest.json>");
+    expect(help.stdout).toContain("contracts examples");
 
     const status = await runCli(["--json", "status"]);
     expect(status.exitCode).toBe(0);
     expect(JSON.parse(status.stdout)).toMatchObject({
       service: "actions",
       package: "@hasna/actions",
-      capabilities: { manifestValidation: true, mcpCatalog: true },
+      capabilities: { manifestValidation: true, mcpCatalog: true, contractAdapters: true },
     });
   });
 
@@ -69,5 +70,25 @@ describe("actions CLI", () => {
     const result = JSON.parse(invalid.stdout);
     expect(result.valid).toBe(false);
     expect(result.errors.map((error: { code: string }) => error.code)).toContain("bindings.required");
+  });
+
+  test("prints contract adapter examples without changing existing command shapes", async () => {
+    const examples = await runCli(["--json", "contracts", "examples"]);
+    expect(examples.exitCode).toBe(0);
+    expect(examples.stderr).toBe("");
+    expect(JSON.parse(examples.stdout)).toMatchObject({
+      actorRef: { schema: "hasna.actor_ref.v1", kind: "human" },
+      evidenceRef: { schema: "hasna.evidence_ref.v1" },
+      decisionEnvelope: { schema: "hasna.decision_envelope.v1" },
+      workRun: { schema: "hasna.work_run.v1", status: "succeeded" },
+      capabilityCard: { schema: "hasna.capability_card.v1", name: "actions CLI" },
+    });
+
+    const card = await runCli(["--json", "contracts", "capability-card"]);
+    expect(card.exitCode).toBe(0);
+    expect(JSON.parse(card.stdout)).toMatchObject({
+      schema: "hasna.capability_card.v1",
+      capabilities: expect.arrayContaining(["contracts:examples"]),
+    });
   });
 });

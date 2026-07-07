@@ -1,0 +1,12 @@
+{
+  "schema": "hasna.work_run.v1",
+  "id": "run_missing_evidence",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "objective": "Execute action tickets.create.",
+  "status": "succeeded",
+  "actor": {
+    "kind": "human",
+    "id": "user_123"
+  },
+  "finishedAt": "2026-06-28T00:02:00.000Z"
+}
