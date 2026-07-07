@@ -132,6 +132,7 @@ describe("contract adapters", () => {
         input: { privateInput: "do-not-copy-input" },
         actor,
         runId: "run_123",
+        idempotencyKey: "do-not-copy-idempotency-key",
         requestedAt: createdAt,
       },
       status: "dead",
@@ -164,6 +165,7 @@ describe("contract adapters", () => {
       finishedAt: "2026-06-28T00:02:00.000Z",
       metadata: {
         originalActionRunStatus: "dead",
+        idempotencyKeyRedacted: true,
         inputRedacted: true,
         resultOutputRedacted: true,
         resultSummaryRedacted: true,
@@ -196,6 +198,7 @@ describe("contract adapters", () => {
       input: { privateInput: "do-not-copy-invocation-input" },
       actor: { id: "agent_1", type: "agent", displayName: "Runner" },
       runId: "run_123",
+      idempotencyKey: "do-not-copy-invocation-idempotency-key",
       requestedAt: createdAt,
       metadata: { privateInvocationMetadata: "do-not-copy-invocation-metadata" },
     };
@@ -208,6 +211,7 @@ describe("contract adapters", () => {
       id: "run_123",
       status: "pending",
       metadata: {
+        idempotencyKeyRedacted: true,
         inputRedacted: true,
         runtimeMetadataRedacted: true,
         runtimeMetadataKeys: ["privateInvocationMetadata"],
