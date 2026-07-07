@@ -4,7 +4,10 @@ import { exampleActionManifest } from "../manifest.js";
 import {
   ACTION_ACTOR_KIND_TO_CONTRACT_KIND,
   ACTION_RUN_STATUS_TO_CONTRACT_STATUS,
+  APPROVAL_DECISION_STATUS_TO_CONTRACT_STATUS,
+  actionActorKindToContractKind,
   actionActorToActorRef,
+  actionInvocationToWorkRun,
   actionManifestToCapabilityCard,
   actionRunToWorkRun,
   approvalDecisionToDecisionEnvelope,
@@ -12,7 +15,7 @@ import {
   createExampleActionContracts,
   evidenceRefFromActionEvidenceRef,
 } from "./contracts.js";
-import type { ActionActor, ActionRun, ActionRunStatus, ApprovalDecision } from "../types.js";
+import type { ActionActor, ActionInvocation, ActionRun, ActionRunStatus, ApprovalDecision, ApprovalDecisionStatus } from "../types.js";
 
 const createdAt = "2026-06-28T00:00:00.000Z";
 
@@ -40,6 +43,20 @@ describe("contract adapters", () => {
     });
   });
 
+  test("documents every ActionActor kind to actor_ref kind mapping", () => {
+    const expected = {
+      user: "human",
+      agent: "agent",
+      system: "system",
+      service: "service",
+    } as const satisfies Record<ActionActor["type"], string>;
+
+    expect(ACTION_ACTOR_KIND_TO_CONTRACT_KIND).toEqual(expected);
+    for (const [actionKind, contractKind] of Object.entries(expected)) {
+      expect(actionActorKindToContractKind(actionKind as ActionActor["type"])).toBe(contractKind);
+    }
+  });
+
   test("documents every ActionRunStatus to ContractStatus mapping", () => {
     const expected = {
       pending: "pending",
@@ -56,6 +73,18 @@ describe("contract adapters", () => {
     } as const satisfies Record<ActionRunStatus, string>;
 
     expect(ACTION_RUN_STATUS_TO_CONTRACT_STATUS).toEqual(expected);
+  });
+
+  test("documents every ApprovalDecision status to decision_envelope status mapping", () => {
+    const expected = {
+      pending: "approval_required",
+      approved: "allowed",
+      rejected: "denied",
+      expired: "denied",
+      cancelled: "skipped",
+    } as const satisfies Record<ApprovalDecisionStatus, string>;
+
+    expect(APPROVAL_DECISION_STATUS_TO_CONTRACT_STATUS).toEqual(expected);
   });
 
   test("maps ApprovalDecision and its evidenceRef to decision_envelope and evidence_ref", () => {
@@ -100,7 +129,7 @@ describe("contract adapters", () => {
         id: "inv_123",
         actionId: "tickets.create",
         manifestVersion: "1.0.0",
-        input: { title: "Need help" },
+        input: { privateInput: "do-not-copy-input" },
         actor,
         runId: "run_123",
         requestedAt: createdAt,
@@ -112,19 +141,21 @@ describe("contract adapters", () => {
       updatedAt: "2026-06-28T00:02:00.000Z",
       startedAt: "2026-06-28T00:00:10.000Z",
       result: {
-        summary: "Partial result before failure",
-        output: { upstreamRequestId: "req_123" },
+        summary: "do-not-copy-result-summary",
+        output: { privateOutput: "do-not-copy-output" },
       },
-      error: { code: "HTTP_500", message: "upstream failed", retryable: false },
+      error: { code: "HTTP_500", message: "do-not-copy-error-message", retryable: false },
       deadLetter: {
-        reason: "max attempts exceeded",
+        reason: "do-not-copy-dead-letter-reason",
         failedAt: "2026-06-28T00:02:00.000Z",
         attempts: 3,
         replayable: true,
       },
+      metadata: { privateRunMetadata: "do-not-copy-run-metadata" },
     };
 
     const workRun = actionRunToWorkRun(run);
+    const serialized = JSON.stringify(workRun);
 
     expect(workRun).toMatchObject({
       schema: SCHEMA_IDS.workRun,
@@ -133,10 +164,17 @@ describe("contract adapters", () => {
       finishedAt: "2026-06-28T00:02:00.000Z",
       metadata: {
         originalActionRunStatus: "dead",
-        input: { title: "Need help" },
-        resultOutput: { upstreamRequestId: "req_123" },
-        error: { code: "HTTP_500", message: "upstream failed", retryable: false },
-        deadLetter: { reason: "max attempts exceeded" },
+        inputRedacted: true,
+        resultOutputRedacted: true,
+        resultSummaryRedacted: true,
+        errorRedacted: true,
+        errorCode: "HTTP_500",
+        errorRetryable: false,
+        deadLetterRedacted: true,
+        deadLetterAttempts: 3,
+        deadLetterReplayable: true,
+        runtimeMetadataRedacted: true,
+        runtimeMetadataKeys: ["privateRunMetadata"],
         actorOriginalActionActorType: "agent",
       },
     });
@@ -144,9 +182,38 @@ describe("contract adapters", () => {
       {
         id: "run_123_failure",
         kind: "artifact",
-        summary: "upstream failed",
+        summary: "Action run failed; error details are stored outside the shared work_run contract.",
       },
     ]);
+    expect(serialized).not.toContain("do-not-copy");
+  });
+
+  test("maps ActionInvocation to work_run without copying raw input metadata", () => {
+    const invocation: ActionInvocation = {
+      id: "inv_123",
+      actionId: "tickets.create",
+      manifestVersion: "1.0.0",
+      input: { privateInput: "do-not-copy-invocation-input" },
+      actor: { id: "agent_1", type: "agent", displayName: "Runner" },
+      runId: "run_123",
+      requestedAt: createdAt,
+      metadata: { privateInvocationMetadata: "do-not-copy-invocation-metadata" },
+    };
+
+    const workRun = actionInvocationToWorkRun(invocation);
+    const serialized = JSON.stringify(workRun);
+
+    expect(workRun).toMatchObject({
+      schema: SCHEMA_IDS.workRun,
+      id: "run_123",
+      status: "pending",
+      metadata: {
+        inputRedacted: true,
+        runtimeMetadataRedacted: true,
+        runtimeMetadataKeys: ["privateInvocationMetadata"],
+      },
+    });
+    expect(serialized).not.toContain("do-not-copy");
   });
 
   test("keeps result evidence even when approval evidence is present", () => {
@@ -154,13 +221,17 @@ describe("contract adapters", () => {
 
     expect(examples.workRun.evidenceRefs).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "run_123_result", summary: "Created ticket TCK-123." }),
+        expect.objectContaining({
+          id: "run_123_result",
+          summary: "Action run result is stored outside the shared work_run contract.",
+        }),
         expect.objectContaining({ summary: "Approval evidence." }),
       ]),
     );
     expect(examples.workRun.metadata).toMatchObject({
-      input: { title: "Need help" },
-      resultOutput: { ticketId: "TCK-123" },
+      inputRedacted: true,
+      resultOutputRedacted: true,
+      resultSummaryRedacted: true,
       actorOriginalActionActorType: "user",
       actorTenantId: "tenant_hasna",
     });

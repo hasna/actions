@@ -81,10 +81,16 @@ Mapping notes:
   URI. Existing URI-shaped values are preserved; other values are represented as
   `artifact://actions/evidence/<encoded-ref>` with the original string in
   metadata.
+- `ApprovalDecision.status` maps `pending -> approval_required`,
+  `approved -> allowed`, `rejected|expired -> denied`, and
+  `cancelled -> skipped`.
 - `ActionInvocation`, `ActionRun` result/error details, and `DryRunContract` do
   not have exact one-to-one fields in `work_run.v1` or `capability_card.v1`;
-  input, idempotency, result/error, and dry-run details are preserved in
-  metadata and capability/constraint fields.
+  ids, idempotency keys, dry-run constraints, status, retry counters, safe error
+  codes, and redaction markers are preserved in metadata and
+  capability/constraint fields. Raw invocation input, result output, arbitrary
+  runtime metadata, error objects, and dead-letter objects are not copied into
+  shared contract metadata by default.
 
 ```ts
 import {

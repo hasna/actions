@@ -235,7 +235,6 @@ export function actionInvocationToWorkRun(
     ],
     constraints: invocation.dryRun ? ["dry-run-requested"] : [],
     metadata: pruneUndefined({
-      ...invocation.metadata,
       sourcePackage: ACTIONS_CONTRACT_SOURCE_PACKAGE,
       actionId: invocation.actionId,
       invocationId: invocation.id,
@@ -243,10 +242,12 @@ export function actionInvocationToWorkRun(
       automationId: invocation.automationId,
       dryRun: invocation.dryRun,
       idempotencyKey: invocation.idempotencyKey,
-      input: invocation.input,
+      inputRedacted: true,
+      runtimeMetadataRedacted: hasOwnMetadata(invocation.metadata),
+      runtimeMetadataKeys: metadataKeys(invocation.metadata),
       actorOriginalActionActorType: invocation.actor?.type,
       actorTenantId: invocation.actor?.tenantId,
-      lossyMapping: "ActionInvocation request and idempotency fields have no first-class work_run.v1 fields; preserved in metadata.",
+      lossyMapping: "ActionInvocation input and runtime metadata have no first-class work_run.v1 fields and are not copied into shared contract metadata by default; ids, state, and redaction markers are preserved.",
     }),
   };
 
@@ -287,7 +288,6 @@ export function actionRunToWorkRun(run: ActionRun, options: ActionRunContractOpt
     decisions,
     evidenceRefs,
     metadata: pruneUndefined({
-      ...run.metadata,
       sourcePackage: ACTIONS_CONTRACT_SOURCE_PACKAGE,
       originalActionRunStatus: run.status,
       attempt: run.attempt,
@@ -299,15 +299,21 @@ export function actionRunToWorkRun(run: ActionRun, options: ActionRunContractOpt
       manifestVersion: run.invocation.manifestVersion,
       automationId: run.invocation.automationId,
       idempotencyKey: run.invocation.idempotencyKey,
-      input: run.invocation.input,
+      inputRedacted: true,
       dryRun: run.invocation.dryRun,
-      resultSummary: run.result?.summary,
-      resultOutput: run.result?.output,
-      error: run.error,
-      deadLetter: run.deadLetter,
+      resultOutputRedacted: run.result?.output !== undefined ? true : undefined,
+      resultSummaryRedacted: run.result?.summary !== undefined ? true : undefined,
+      errorRedacted: run.error !== undefined ? true : undefined,
+      errorCode: run.error?.code,
+      errorRetryable: run.error?.retryable,
+      deadLetterRedacted: run.deadLetter !== undefined ? true : undefined,
+      deadLetterAttempts: run.deadLetter?.attempts,
+      deadLetterReplayable: run.deadLetter?.replayable,
+      runtimeMetadataRedacted: hasOwnMetadata(run.metadata),
+      runtimeMetadataKeys: metadataKeys(run.metadata),
       actorOriginalActionActorType: run.invocation.actor?.type,
       actorTenantId: run.invocation.actor?.tenantId,
-      lossyMapping: "ActionRun retry, result, error, and dead-letter details have no first-class work_run.v1 fields; preserved in metadata or evidence pointers.",
+      lossyMapping: "ActionRun retry, result, error, and dead-letter payloads have no first-class work_run.v1 fields and are not copied into shared contract metadata by default; safe state, evidence pointers, and redaction markers are preserved.",
     }),
   };
 
@@ -503,21 +509,21 @@ function collectActionRunEvidenceRefs(
     evidenceRefs.push({
       id: `${run.id}_result`,
       kind: "artifact",
-      summary: run.result.summary ?? "Action run result is stored in ActionRun.result.",
+      summary: "Action run result is stored outside the shared work_run contract.",
     });
   }
   if (status === "succeeded" && evidenceRefs.length === 0) {
     evidenceRefs.push({
       id: `${run.id}_result`,
       kind: "artifact",
-      summary: run.result?.summary ?? "Action run succeeded; result is stored in ActionRun.result.",
+      summary: "Action run succeeded; result details are stored outside the shared work_run contract.",
     });
   }
   if (status === "failed" && evidenceRefs.length === 0 && decisions.length === 0) {
     evidenceRefs.push({
       id: `${run.id}_failure`,
       kind: "artifact",
-      summary: run.error?.message ?? run.deadLetter?.reason ?? "Action run failed.",
+      summary: "Action run failed; error details are stored outside the shared work_run contract.",
     });
   }
 
@@ -585,6 +591,15 @@ function isTerminalContractStatus(status: ContractStatus): boolean {
 
 function isString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function hasOwnMetadata(value: JsonObject | undefined): boolean | undefined {
+  return value && Object.keys(value).length > 0 ? true : undefined;
+}
+
+function metadataKeys(value: JsonObject | undefined): string[] | undefined {
+  const keys = value ? Object.keys(value).sort() : [];
+  return keys.length > 0 ? keys : undefined;
 }
 
 function pruneUndefined<T extends Record<string, unknown>>(value: T): T {
