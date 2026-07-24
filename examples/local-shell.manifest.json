@@ -1,0 +1,77 @@
+{
+  "id": "examples.local-shell.uppercase",
+  "name": "Uppercase local input",
+  "version": "1.0.0",
+  "description": "Demonstrates a local-shell action that receives typed JSON input and returns JSON output.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["name"],
+    "properties": {
+      "name": { "type": "string" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["message"],
+    "properties": {
+      "message": { "type": "string" }
+    }
+  },
+  "actor": {
+    "types": ["human", "agent"],
+    "required": true
+  },
+  "resource": {
+    "type": "local-process",
+    "identifiers": ["name"]
+  },
+  "scope": {
+    "level": "local",
+    "permissions": ["shell:execute"]
+  },
+  "riskLevel": "low",
+  "requiredApprovals": [],
+  "idempotency": {
+    "supported": true,
+    "required": false,
+    "keyHint": "name"
+  },
+  "dryRun": {
+    "supported": true,
+    "default": true
+  },
+  "confirmation": {
+    "title": "Uppercase local input",
+    "summaryTemplate": "Uppercase {{name}}",
+    "fields": ["name"]
+  },
+  "guardrail": {
+    "hook": "local-shell-policy",
+    "failClosed": false
+  },
+  "audit": {
+    "eventTypes": ["action.planned", "action.previewed", "action.executed"],
+    "includeInput": true,
+    "includeOutput": true
+  },
+  "evidence": {
+    "required": false,
+    "fields": ["stdout", "stderr"]
+  },
+  "rollback": {
+    "strategy": "none"
+  },
+  "executorBindings": [
+    {
+      "kind": "local-shell",
+      "command": "bun",
+      "args": [
+        "-e",
+        "const input = JSON.parse(await new Response(Bun.stdin.stream()).text()); console.log(JSON.stringify({ message: input.name.toUpperCase() }));"
+      ],
+      "inputMode": "stdin-json",
+      "outputMode": "json"
+    }
+  ]
+}
+

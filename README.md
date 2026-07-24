@@ -2,97 +2,259 @@
 
 Typed, auditable action contracts for agentic software.
 
-`open-actions` defines the portable contract layer that real automation systems
-can execute against without coupling themselves to one runner. It is not a
-scheduler and it is not the OpenAutomations control plane. It gives callers a
-shared language for action manifests, idempotency, dry-run previews, approvals,
-policy hooks, audit events, runtime bindings, and dead-letter handling.
+`open-actions` is an OSS primitive for making multi-step operator work safer:
+every action has a portable manifest, typed inputs and outputs, dry-run preview,
+approval policy, guardrail hooks, idempotency, execution bindings, and audit
+evidence.
 
-## Package
+It is not a wrapper around a shell command or SDK call. A wrapper says "run this."
+An open action says what will run, who is allowed to run it, what it touches, how
+to preview it, how to approve it, how to dedupe retries, where audit events go,
+and what rollback or compensating action is available.
 
-```sh
-bun add @hasna/actions
+## Install
+
+```bash
+bun install @hasna/actions
 ```
+
+## Manifest Shape
 
 ```ts
-import {
-  createActionInvocation,
-  exampleActionManifest,
-  validateActionManifest,
-} from "@hasna/actions";
+import { createTypeScriptAction } from "@hasna/actions";
 
-const manifest = exampleActionManifest();
-const validation = validateActionManifest(manifest);
-if (!validation.valid) throw new Error("invalid action manifest");
-
-const invocation = createActionInvocation(manifest, { title: "Need help" });
+const action = createTypeScriptAction({
+  manifest: {
+    id: "projects.metadata.update",
+    name: "Update project metadata",
+    version: "1.0.0",
+    description: "Patch project metadata after preview and approval.",
+    inputSchema: {
+      type: "object",
+      required: ["project", "metadata"],
+      properties: {
+        project: { type: "string" },
+        metadata: { type: "object" }
+      }
+    },
+    outputSchema: {
+      type: "object",
+      required: ["updated"],
+      properties: { updated: { type: "boolean" } }
+    },
+    actor: { types: ["human", "agent"], required: true },
+    resource: { type: "project", identifiers: ["project"] },
+    scope: { level: "workspace", permissions: ["project:metadata:update"] },
+    riskLevel: "medium",
+    requiredApprovals: [{ kind: "manual", count: 1, reason: "metadata mutation" }],
+    idempotency: { supported: true, required: true, keyHint: "project + patch hash" },
+    dryRun: { supported: true, default: true },
+    confirmation: {
+      title: "Update project metadata",
+      summaryTemplate: "Update metadata for {{project}}",
+      fields: ["project", "metadata"]
+    },
+    guardrail: { hook: "project-metadata-policy", failClosed: true },
+    audit: { eventTypes: ["action.planned", "action.executed"], includeInput: true },
+    evidence: { required: false, fields: ["diff", "command"] },
+    rollback: { strategy: "compensating-action", actionId: "projects.metadata.restore" },
+    executorBindings: [{ kind: "typescript", ref: "examples/project-workflow.ts#updateMetadata" }]
+  },
+  preview: async ({ input }) => ({
+    summary: `Would update ${input.project}`,
+    changes: [{ kind: "metadata", target: input.project, after: input.metadata }]
+  }),
+  execute: async ({ input }) => ({ updated: true, project: input.project })
+});
 ```
 
-## Contract Boundaries
+## SDK
 
-Action manifests describe what can be executed and what safety contract applies.
-The execution owner, such as OpenAutomations, is responsible for queueing,
-claiming, retrying, replaying, and storing durable run state.
+```ts
+import { ActionsClient, JsonActionsStore } from "@hasna/actions";
 
-Core contract pieces:
+const client = new ActionsClient({
+  store: new JsonActionsStore(),
+  guardrailHooks: [
+    async ({ manifest }) => (
+      manifest.riskLevel === "critical"
+        ? { decision: "deny", reason: "critical actions require an external policy" }
+        : { decision: "allow" }
+    )
+  ],
+  auditSinks: [
+    async (event) => {
+      // Bridge to @hasna/events, a webhook, or a local ledger.
+      console.log(event.type, event.runId);
+    }
+  ]
+});
 
-- `ActionManifest`: action identity, version, provider identity, schemas,
-  side-effect classification, required grants, executable bindings, dry-run
-  capability, approval hooks, audit event shape, and policy.
-- `ActionInvocation`: one requested execution with actor, input, dry-run flag,
-  and idempotency key.
-- `ActionRunStatus`: canonical lifecycle status, including `dead` for DLQ.
-- `DryRunPreview`: pre-execution summary and policy/approval findings.
-- `ApprovalGate` and `ApprovalDecision`: queue-safe approval state for manual
-  or step-up actions before execution is claimed.
-- `ActionDeadLetter`: terminal DLQ metadata with replay eligibility.
-- `ActionAuditEvent`: audit evidence emitted by controllers or executors.
+client.register(action);
 
-Supported binding kinds are `cli`, `http`, `mcp`, `sdk`, `workflow`, and
-`agent`. A manifest must include at least one binding.
+const preview = await client.run({
+  actionId: "projects.metadata.update",
+  input: { project: "open-actions", metadata: { stage: "active" } },
+  actor: { id: "hasna", type: "human" },
+  idempotencyKey: "open-actions-stage-active",
+  dryRun: true
+});
 
-Required `ActionManifest` package contract fields:
+const run = await client.run({
+  actionId: "projects.metadata.update",
+  input: { project: "open-actions", metadata: { stage: "active" } },
+  actor: { id: "hasna", type: "human" },
+  idempotencyKey: "open-actions-stage-active-v2"
+});
 
-- `provider`: stable owner identity with `id`, `name`, and optional provider
-  `version`.
-- `sideEffects`: one classification from `none`, `read`, `write`, `delete`,
-  `external`, `financial`, or `identity`, plus optional resources and external
-  systems.
-- `requiredGrants`: an array of grants the executor must hold before execution.
-  Use an empty array only for actions that require no grants.
-- `bindings`: one or more executable bindings. Bindings may include
-  `execution` metadata such as sync/async/queued mode, runner, timeout, network
-  requirement, and sandbox profile.
-- `dryRun`: whether previewing is supported and which capability level is
-  available.
-- `approval`: the approval mode and any policy hook references that gate preview
-  or execution.
-- `audit`: the event source, required audit fields, and emitted audit event
-  shapes.
+await client.approve(run.id, {
+  actor: { id: "hasna", type: "human" },
+  decision: "approved",
+  reason: "Preview matches request"
+});
 
-Secrets in manifests are references only. Use `secrets[].ref`; never embed raw
-credential values.
+await client.execute(run.id);
+```
+
+## Local Shell Executor
+
+Shell actions are still typed contracts. The command is an executor binding, not
+the whole action.
+
+```json
+{
+  "id": "dispatch.agent.followup",
+  "name": "Dispatch follow-up to idle agents",
+  "version": "1.0.0",
+  "description": "Preview and dispatch a bounded prompt to agent sessions.",
+  "inputSchema": { "type": "object" },
+  "outputSchema": { "type": "object" },
+  "actor": { "types": ["human", "agent"], "required": true },
+  "resource": { "type": "agent-session" },
+  "scope": { "level": "machine", "permissions": ["dispatch:send"] },
+  "riskLevel": "medium",
+  "requiredApprovals": [{ "kind": "manual", "count": 1 }],
+  "idempotency": { "supported": true, "required": true },
+  "dryRun": { "supported": true, "default": true },
+  "confirmation": { "title": "Dispatch follow-up", "fields": ["target", "prompt"] },
+  "guardrail": { "hook": "dispatch-target-policy", "failClosed": true },
+  "audit": { "eventTypes": ["action.planned", "action.previewed", "action.executed"] },
+  "evidence": { "required": false, "fields": ["dispatchId", "captureBefore"] },
+  "rollback": { "strategy": "none", "notes": "Dispatch cannot be undone; use a compensating follow-up prompt." },
+  "executorBindings": [
+    {
+      "kind": "local-shell",
+      "command": "dispatch",
+      "args": ["send", "--json", "--dry-run"],
+      "inputMode": "env-json",
+      "outputMode": "json"
+    }
+  ]
+}
+```
+
+Run a local shell action manifest:
+
+```bash
+actions run examples/local-shell.manifest.json \
+  --input '{"name":"open-actions"}' \
+  --idempotency-key demo-1 \
+  --dry-run \
+  --json
+```
 
 ## CLI
 
-```sh
-actions --help
-actions --json status
-actions --json manifest example
-actions validate manifest.json
+CLI output is compact by default for humans and agents. List commands cap human
+rows, truncate long summaries, include totals, and print the next command to run
+when more rows are available. Use `show`/`inspect` or `--verbose` for bounded
+detail. Use `--json` only when a full machine-readable record is needed; JSON
+output preserves the stored manifest/run shape.
+
+```text
+actions status
+actions status --verbose
+actions manifests validate <file>
+actions manifests list --limit 20
+actions manifests show <id> --verbose
+actions manifests inspect <id>
+actions run <manifest-file> --input <json> --dry-run
+actions run <manifest-file> --input-file input.json --approve --verbose
+actions runs list --status previewed --limit 20 --cursor 20
+actions runs show <run-id>
+actions runs inspect <run-id>
+actions approve <run-id> --reason "reviewed"
+actions execute <run-id> <manifest-file> --verbose
+actions runs list --json
+actions runs show <run-id> --json
 ```
 
-## MCP Skeleton
+## MCP
 
-The package exposes a small MCP-facing catalog shape:
+`actions-mcp` exposes the same local-first action store to agents:
 
-```ts
-import { actionManifestToMcpTool, createActionsMcpCatalog } from "@hasna/actions/mcp";
+- `actions_register_manifest`
+- `actions_list_manifests`
+- `actions_show_manifest`
+- `actions_run`
+- `actions_approve`
+- `actions_deny`
+- `actions_execute`
+- `actions_show_run`
+- `actions_list_runs`
 
-const tool = actionManifestToMcpTool(manifest);
-const catalog = createActionsMcpCatalog([manifest]);
+MCP tools also use compact output by default. `actions_list_manifests` and
+`actions_list_runs` return paginated summary envelopes with `page.nextCursor`.
+Pass `limit` and `cursor` to page through records. Pass `detail: "verbose"` for
+bounded previews or `detail: "full"` for paginated full records. Prefer
+`actions_show_manifest` and `actions_show_run` when an agent needs one complete
+record.
+
+The first version executes stored local-shell manifests over MCP. TypeScript SDK
+actions are registered in-process by the host application.
+
+## Integration Model
+
+- `open-guardrails`: provide guardrail hooks that inspect manifest, actor,
+  input, scope, and preview before execution.
+- `open-orgs`: resolve actor roles and approval authority before calling
+  `approve`.
+- `open-dispatch`: expose dispatch operations as medium/high-risk actions with
+  dry-run, target policy, and capture evidence.
+- `open-projects`: represent create/publish/update workflows as composable
+  action plans with rollback or compensating-action metadata.
+- `open-events`: receive audit events emitted by `ActionsClient` audit sinks.
+
+## Project Dashboard Boundary
+
+Project dashboards should render actions as server-issued capabilities, not as
+shell commands or direct SDK calls. Use `projectActionCapability(manifest)` to
+derive a view-safe object for the dashboard. The projection includes labels,
+risk, scope, dry-run support, approval requirements, audit/evidence fields, and
+blockers. It intentionally omits executor bindings, commands, environment, and
+raw implementation details.
+
+V1 dashboards are read-only by default. A mutation-capable action is available
+only when the manifest supports dry-run preview, defaults to dry-run, includes a
+preview audit event, has a confirmation title, and defines an approval policy
+for medium/high/critical risk. The dashboard should request a server-side
+dry-run first, then use the returned run id for explicit confirmation and
+approval. It should never execute arbitrary commands from rendered JSON.
+
+## Storage
+
+Default local data directory:
+
+```text
+~/.hasna/actions
 ```
 
-The `actions-mcp` binary currently prints capabilities and converts manifest
-JSON into MCP tool descriptors. A full stdio server can be layered on this
-stable contract later without changing manifest semantics.
+Override with `HASNA_ACTIONS_DIR` or `HASNA_ACTIONS_HOME`.
+
+The storage interface is intentionally small so the same contract can later be
+backed by SQLite, Postgres, a gateway service, or a signed audit ledger.
+
+Local shell executors pass `PATH`, `HOME`, and temp directory variables by
+default, plus explicit manifest `env` values. They do not inherit the whole
+process environment unless `inheritEnv` is set, so unrelated local secrets are
+not casually forwarded to action commands.

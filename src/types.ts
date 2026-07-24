@@ -1,360 +1,297 @@
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-
 export interface JsonObject {
   [key: string]: JsonValue;
 }
 
-export type ActionSchema = Record<string, unknown>;
+export type JsonSchema = {
+  $schema?: string;
+  type?: string | string[];
+  title?: string;
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema | JsonSchema[];
+  additionalProperties?: boolean | JsonSchema;
+  enum?: JsonValue[];
+  const?: JsonValue;
+  default?: JsonValue;
+  examples?: JsonValue[];
+  [key: string]: unknown;
+};
 
-export const ACTION_MANIFEST_SCHEMA_VERSION = "1.0" as const;
+export type ActorType = "human" | "agent" | "service" | "system";
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type ApprovalKind = "none" | "manual" | "policy";
+export type ApprovalDecisionValue = "approved" | "denied";
+export type GuardrailDecision = "allow" | "warn" | "deny";
+export type ActionExecutorKind = "typescript" | "local-shell" | "mcp" | "http";
+export type ActionRunStatus =
+  | "planned"
+  | "previewed"
+  | "awaiting_approval"
+  | "approved"
+  | "denied"
+  | "executing"
+  | "succeeded"
+  | "failed"
+  | "rolled_back"
+  | "cancelled";
 
-export const ACTION_BINDING_KINDS = [
-  "cli",
-  "http",
-  "mcp",
-  "sdk",
-  "workflow",
-  "agent",
-] as const;
-
-export type ActionBindingKind = (typeof ACTION_BINDING_KINDS)[number];
-
-export const ACTION_SIDE_EFFECT_CLASSES = [
-  "none",
-  "read",
-  "write",
-  "delete",
-  "external",
-  "financial",
-  "identity",
-] as const;
-
-export type ActionSideEffectClass = (typeof ACTION_SIDE_EFFECT_CLASSES)[number];
-
-export const ACTION_GRANT_KINDS = [
-  "tenant",
-  "user",
-  "service",
-  "oauth",
-  "secret",
-  "network",
-  "filesystem",
-  "command",
-  "approval",
-] as const;
-
-export type ActionGrantKind = (typeof ACTION_GRANT_KINDS)[number];
-
-export const ACTION_DRY_RUN_CAPABILITIES = [
-  "none",
-  "input-validation",
-  "effect-preview",
-  "effect-preview-and-policy",
-] as const;
-
-export type ActionDryRunCapability = (typeof ACTION_DRY_RUN_CAPABILITIES)[number];
-
-export const ACTION_APPROVAL_HOOK_STAGES = [
-  "before-preview",
-  "before-approval",
-  "after-decision",
-  "before-execute",
-] as const;
-
-export type ActionApprovalHookStage = (typeof ACTION_APPROVAL_HOOK_STAGES)[number];
-
-export const ACTION_EXECUTION_MODES = [
-  "sync",
-  "async",
-  "queued",
-] as const;
-
-export type ActionExecutionMode = (typeof ACTION_EXECUTION_MODES)[number];
-
-export const ACTION_AUDIT_EVENT_FIELDS = [
-  "id",
-  "source",
-  "type",
-  "actionId",
-  "invocationId",
-  "runId",
-  "time",
-  "actor",
-  "data",
-] as const;
-
-export type ActionAuditEventField = (typeof ACTION_AUDIT_EVENT_FIELDS)[number];
+export type ActionQueueStatus =
+  | "queued"
+  | "waiting_approval"
+  | "claimed"
+  | "retrying"
+  | "succeeded"
+  | "failed"
+  | "dead"
+  | "cancelled";
 
 export const ACTION_RUN_STATUSES = [
-  "pending",
+  "planned",
+  "previewed",
+  "awaiting_approval",
+  "approved",
+  "denied",
+  "executing",
+  "succeeded",
+  "failed",
+  "rolled_back",
+  "cancelled",
+] as const satisfies readonly ActionRunStatus[];
+
+export const TERMINAL_ACTION_RUN_STATUSES = [
+  "denied",
+  "succeeded",
+  "failed",
+  "rolled_back",
+  "cancelled",
+] as const satisfies readonly ActionRunStatus[];
+
+export const ACTION_QUEUE_STATUSES = [
   "queued",
   "waiting_approval",
   "claimed",
-  "running",
   "retrying",
   "succeeded",
   "failed",
-  "cancelled",
-  "skipped",
   "dead",
-] as const;
+  "cancelled",
+] as const satisfies readonly ActionQueueStatus[];
 
-export type ActionRunStatus = (typeof ACTION_RUN_STATUSES)[number];
-
-export const TERMINAL_ACTION_RUN_STATUSES = [
+export const TERMINAL_ACTION_QUEUE_STATUSES = [
   "succeeded",
   "failed",
-  "cancelled",
-  "skipped",
   "dead",
-] as const satisfies readonly ActionRunStatus[];
+  "cancelled",
+] as const satisfies readonly ActionQueueStatus[];
 
-export type TerminalActionRunStatus = (typeof TERMINAL_ACTION_RUN_STATUSES)[number];
+export function assertActionRunStatus(value: string): ActionRunStatus {
+  if (!(ACTION_RUN_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`unsupported action run status: ${value}`);
+  }
+  return value as ActionRunStatus;
+}
 
-export const SUPPORTED_ACTION_MANIFEST_SCHEMA_VERSIONS = [
-  ACTION_MANIFEST_SCHEMA_VERSION,
-] as const;
+export function isTerminalActionStatus(status: ActionRunStatus): boolean {
+  return (TERMINAL_ACTION_RUN_STATUSES as readonly string[]).includes(status);
+}
 
-export type SupportedActionManifestSchemaVersion = (typeof SUPPORTED_ACTION_MANIFEST_SCHEMA_VERSIONS)[number];
+export function assertActionQueueStatus(value: string): ActionQueueStatus {
+  if (!(ACTION_QUEUE_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`unsupported action queue status: ${value}`);
+  }
+  return value as ActionQueueStatus;
+}
 
-export type IdempotencyScope = "global" | "tenant" | "actor" | "automation" | "action";
-export type ApprovalMode = "never" | "preview" | "manual" | "step-up";
-export type ApprovalDecisionStatus = "pending" | "approved" | "rejected" | "expired" | "cancelled";
-export type ActionRiskLevel = "low" | "medium" | "high" | "critical";
-export type RetryStrategy = "none" | "fixed" | "exponential";
+export function isTerminalActionQueueStatus(status: ActionQueueStatus): boolean {
+  return (TERMINAL_ACTION_QUEUE_STATUSES as readonly string[]).includes(status);
+}
 
-export interface ActionProviderIdentity {
+export interface ActorRef {
   id: string;
-  name: string;
-  version?: string;
-  url?: string;
-  supportUrl?: string;
+  type: ActorType;
+  roles?: string[];
+  displayName?: string;
   metadata?: JsonObject;
 }
 
-export interface ActionSideEffectClassification {
-  classification: ActionSideEffectClass;
-  resources?: string[];
-  externalSystems?: string[];
-  reversible?: boolean;
-  description?: string;
-  metadata?: JsonObject;
-}
-
-export interface ActionGrantRequirement {
-  kind: ActionGrantKind;
-  resource: string;
-  operations?: string[];
-  scope?: string;
-  reason?: string;
-  metadata?: JsonObject;
-}
-
-export interface ActionExecutionBindingMetadata {
-  mode: ActionExecutionMode;
-  runner?: string;
-  entrypoint?: string;
-  timeoutMs?: number;
-  requiresNetwork?: boolean;
-  sandboxProfile?: string;
-  metadata?: JsonObject;
-}
-
-export interface ActionBinding {
-  id?: string;
-  kind: ActionBindingKind;
-  name?: string;
-  command?: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  url?: string;
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  headers?: Record<string, string>;
-  package?: string;
-  export?: string;
-  toolName?: string;
-  workflowRef?: string;
-  timeoutMs?: number;
-  execution?: ActionExecutionBindingMetadata;
-  metadata?: JsonObject;
-}
-
-export interface IdempotencyContract {
-  required: boolean;
-  scope: IdempotencyScope;
-  keyTemplate?: string;
-  ttlSeconds?: number;
-  conflictPolicy?: "return-existing" | "reject" | "enqueue-new-attempt";
-}
-
-export interface DryRunContract {
-  supported: boolean;
-  capability: ActionDryRunCapability;
+export interface ActorMetadata {
+  types: ActorType[];
   required?: boolean;
-  defaultMode?: "preview-only" | "preview-and-policy" | "execute";
-  outputSchema?: ActionSchema;
+  roles?: string[];
+  notes?: string;
+}
+
+export interface ResourceMetadata {
+  type: string;
+  identifiers?: string[];
+  description?: string;
+}
+
+export interface ScopeMetadata {
+  level: "local" | "machine" | "workspace" | "project" | "org" | "cloud";
+  permissions?: string[];
+  boundaries?: string[];
+  description?: string;
 }
 
 export interface ApprovalRequirement {
-  mode: ApprovalMode;
-  requiresApproval: boolean;
+  kind: ApprovalKind;
+  count?: number;
+  roles?: string[];
   reason?: string;
-  approverKinds?: Array<"human" | "policy" | "system">;
-  policyRefs?: string[];
-  hooks?: ApprovalPolicyHook[];
-  timeoutSeconds?: number;
+  policy?: string;
 }
 
-export interface ApprovalPolicyHook {
-  id: string;
-  stage: ActionApprovalHookStage;
-  ref: string;
-  failClosed?: boolean;
-  metadata?: JsonObject;
-}
-
-export interface ApprovalDecision {
-  id: string;
-  status: ApprovalDecisionStatus;
-  requestedAt: string;
-  decidedAt?: string;
-  requestedBy?: ActionActor;
-  decidedBy?: ActionActor;
-  reason?: string;
-  evidenceRef?: string;
-  metadata?: JsonObject;
-}
-
-export interface ApprovalGate {
-  requirement: ApprovalRequirement;
-  decision?: ApprovalDecision;
-  blockedUntilApproved: boolean;
-}
-
-export interface PolicyHook {
-  id: string;
-  name?: string;
-  kind: "preflight" | "pre-execute" | "post-execute";
-  ref: string;
-  failClosed?: boolean;
-}
-
-export interface ActionPolicy {
-  risk: ActionRiskLevel;
-  hooks?: PolicyHook[];
-  allowedActors?: string[];
-  deniedActors?: string[];
-}
-
-export interface SecretReference {
-  name: string;
-  ref: string;
+export interface IdempotencySpec {
+  supported: boolean;
   required?: boolean;
-  redaction?: "full" | "partial" | "none";
-  env?: string;
+  keyHint?: string;
+  retentionSeconds?: number;
 }
 
-export interface SandboxRequirement {
-  profile?: string;
-  network?: "deny" | "allow" | "limited";
-  filesystem?: "readonly" | "workspace" | "limited" | "full";
-  commands?: "deny" | "allowlisted" | "allow";
-  allowlist?: string[];
+export interface DryRunSpec {
+  supported: boolean;
+  default?: boolean;
+  notes?: string;
 }
 
-export interface RetryPolicy {
-  strategy: RetryStrategy;
-  maxAttempts: number;
-  initialBackoffMs?: number;
-  maxBackoffMs?: number;
-  multiplier?: number;
+export interface ConfirmationSpec {
+  title: string;
+  summaryTemplate?: string;
+  fields?: string[];
+  warnings?: string[];
 }
 
-export interface AuditEventShape {
-  type: string;
-  dataSchema?: ActionSchema;
-  requiredFields?: ActionAuditEventField[];
-  metadata?: JsonObject;
+export interface GuardrailSpec {
+  hook: string;
+  failClosed?: boolean;
+  description?: string;
 }
 
-export interface AuditContract {
-  eventSource: string;
-  events: AuditEventShape[];
-  requiredFields?: ActionAuditEventField[];
+export interface AuditSpec {
+  eventTypes: string[];
   includeInput?: boolean;
   includeOutput?: boolean;
-  redactPaths?: string[];
-  evidenceRefs?: string[];
+  redactedFields?: string[];
 }
 
-export interface ActionManifest<
-  TInputSchema extends ActionSchema = ActionSchema,
-  TOutputSchema extends ActionSchema = ActionSchema,
-> {
-  schemaVersion: SupportedActionManifestSchemaVersion;
+export interface EvidenceSpec {
+  required?: boolean;
+  fields?: string[];
+  retention?: string;
+}
+
+export interface RollbackSpec {
+  strategy: "none" | "automatic" | "manual" | "compensating-action";
+  actionId?: string;
+  notes?: string;
+}
+
+export interface TypeScriptExecutorBinding {
+  kind: "typescript";
+  ref: string;
+}
+
+export interface LocalShellExecutorBinding {
+  kind: "local-shell";
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  inheritEnv?: boolean;
+  inputMode?: "stdin-json" | "env-json" | "stdin-and-env-json" | "none";
+  outputMode?: "json" | "text" | "shell-result";
+  timeoutMs?: number;
+}
+
+export interface McpExecutorBinding {
+  kind: "mcp";
+  server: string;
+  tool: string;
+}
+
+export interface HttpExecutorBinding {
+  kind: "http";
+  method: "POST" | "PUT" | "PATCH";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export type ActionExecutorBinding =
+  | TypeScriptExecutorBinding
+  | LocalShellExecutorBinding
+  | McpExecutorBinding
+  | HttpExecutorBinding;
+
+export interface ActionManifest {
   id: string;
   name: string;
   version: string;
-  namespace?: string;
-  title?: string;
-  description?: string;
-  provider: ActionProviderIdentity;
-  inputSchema?: TInputSchema;
-  outputSchema?: TOutputSchema;
-  sideEffects: ActionSideEffectClassification;
-  requiredGrants: ActionGrantRequirement[];
-  bindings: ActionBinding[];
-  idempotency?: IdempotencyContract;
-  dryRun: DryRunContract;
-  approval: ApprovalRequirement;
-  policy?: ActionPolicy;
-  secrets?: SecretReference[];
-  sandbox?: SandboxRequirement;
-  retry?: RetryPolicy;
-  audit: AuditContract;
+  description: string;
+  inputSchema: JsonSchema;
+  outputSchema: JsonSchema;
+  actor: ActorMetadata;
+  resource: ResourceMetadata;
+  scope: ScopeMetadata;
+  riskLevel: RiskLevel;
+  requiredApprovals: ApprovalRequirement[];
+  idempotency: IdempotencySpec;
+  dryRun: DryRunSpec;
+  confirmation: ConfirmationSpec;
+  guardrail?: GuardrailSpec;
+  audit: AuditSpec;
+  evidence: EvidenceSpec;
+  rollback: RollbackSpec;
+  executorBindings: ActionExecutorBinding[];
   metadata?: JsonObject;
 }
 
-export interface ActionActor {
+export interface ActionPlanStep {
   id: string;
-  type: "user" | "agent" | "system" | "service";
-  displayName?: string;
-  tenantId?: string;
+  kind: "input" | "guardrail" | "approval" | "execute" | "audit" | "evidence" | "rollback" | string;
+  title: string;
+  status: "planned" | "skipped";
+  detail?: string;
   metadata?: JsonObject;
 }
 
-export interface ActionInvocation<TInput extends JsonValue = JsonObject> {
+export interface ActionChangePreview {
+  kind: string;
+  target: string;
+  before?: unknown;
+  after?: unknown;
+  detail?: string;
+}
+
+export interface ActionPreview {
+  summary: string;
+  steps?: ActionPlanStep[];
+  changes?: ActionChangePreview[];
+  warnings?: string[];
+  evidence?: EvidenceRef[];
+  metadata?: JsonObject;
+}
+
+export interface ActionInvocation<TInput = JsonValue> {
   id: string;
   actionId: string;
-  manifestVersion: string;
+  manifestVersion?: string;
   input: TInput;
-  actor?: ActionActor;
+  actor?: ActorRef;
+  requestedAt?: string;
+  idempotencyKey?: string;
   automationId?: string;
   runId?: string;
-  dryRun?: boolean;
-  idempotencyKey?: string;
-  requestedAt: string;
   metadata?: JsonObject;
 }
 
-export interface DryRunPreview<TPreview extends JsonValue = JsonObject> {
-  invocationId: string;
-  actionId: string;
-  safeToRun: boolean;
+export interface ActionResult<TOutput = JsonValue> {
   summary?: string;
-  preview?: TPreview;
-  requiredApprovals?: ApprovalRequirement[];
-  policyFindings?: PolicyFinding[];
-  metadata?: JsonObject;
-}
-
-export interface PolicyFinding {
-  id: string;
-  level: "info" | "warning" | "error";
-  message: string;
-  policyRef?: string;
+  output?: TOutput;
+  evidence?: EvidenceRef[];
   metadata?: JsonObject;
 }
 
@@ -362,13 +299,8 @@ export interface ActionError {
   code: string;
   message: string;
   retryable?: boolean;
-  details?: JsonObject;
-}
-
-export interface ActionResult<TOutput extends JsonValue = JsonValue> {
-  output?: TOutput;
-  summary?: string;
-  auditEvents?: ActionAuditEvent[];
+  details?: JsonValue;
+  cause?: string;
   metadata?: JsonObject;
 }
 
@@ -378,51 +310,144 @@ export interface ActionDeadLetter {
   lastError?: ActionError;
   attempts: number;
   replayable: boolean;
-  replayAfter?: string;
   metadata?: JsonObject;
 }
 
-export interface ActionRun<TInput extends JsonValue = JsonObject, TOutput extends JsonValue = JsonValue> {
+export type ActionQueueApprovalDecisionStatus = "pending" | "approved" | "rejected";
+
+export interface ActionQueueApprovalRequirement {
+  mode: ApprovalKind;
+  requiresApproval: boolean;
+  count?: number;
+  roles?: string[];
+  reason?: string;
+  policy?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionQueueApprovalDecision {
   id: string;
-  invocation: ActionInvocation<TInput>;
+  status: ActionQueueApprovalDecisionStatus;
+  requestedAt: string;
+  decidedAt?: string;
+  reason?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionQueueApprovalGate {
+  requirement: ActionQueueApprovalRequirement;
+  blockedUntilApproved: boolean;
+  decision?: ActionQueueApprovalDecision;
+  metadata?: JsonObject;
+}
+
+export type ApprovalGate = ActionQueueApprovalGate;
+
+export interface EvidenceRef {
+  kind: "file" | "url" | "event" | "log" | "stdout" | "stderr" | "artifact" | string;
+  ref: string;
+  label?: string;
+  metadata?: JsonObject;
+}
+
+export interface GuardrailResult {
+  decision: GuardrailDecision;
+  reason?: string;
+  warnings?: string[];
+  metadata?: JsonObject;
+}
+
+export interface ApprovalDecision {
+  actor: ActorRef;
+  decision: ApprovalDecisionValue;
+  reason?: string;
+  createdAt?: string;
+  metadata?: JsonObject;
+}
+
+export interface ActionAuditEvent {
+  id: string;
+  runId: string;
+  actionId: string;
+  type: string;
+  time: string;
+  actor?: ActorRef;
+  severity: "debug" | "info" | "notice" | "warning" | "error" | "critical";
+  message?: string;
+  data: JsonObject;
+  metadata: JsonObject;
+}
+
+export interface ActionRun<TInput = unknown, TOutput = unknown> {
+  id: string;
+  actionId: string;
+  actionVersion: string;
   status: ActionRunStatus;
-  attempt: number;
-  maxAttempts: number;
+  actor?: ActorRef;
+  input: TInput;
+  output?: TOutput;
+  preview?: ActionPreview;
+  plan: ActionPlanStep[];
+  riskLevel: RiskLevel;
+  requiredApprovals: ApprovalRequirement[];
+  approvals: ApprovalDecision[];
+  guardrailResults: GuardrailResult[];
+  evidence: EvidenceRef[];
+  idempotencyKey?: string;
+  dryRun: boolean;
+  confirmationSummary: string;
+  rollback?: RollbackSpec;
+  dedupedFromRunId?: string;
+  error?: string;
+  events: ActionAuditEvent[];
+  metadata: JsonObject;
   createdAt: string;
   updatedAt: string;
-  claimedBy?: string;
-  claimedAt?: string;
-  startedAt?: string;
+  executedAt?: string;
   completedAt?: string;
-  nextAttemptAt?: string;
-  approvalGate?: ApprovalGate;
-  result?: ActionResult<TOutput>;
-  error?: ActionError;
-  deadLetter?: ActionDeadLetter;
-  metadata?: JsonObject;
 }
 
-export interface ActionAuditEvent<TData extends JsonObject = JsonObject> {
-  id: string;
-  source: string;
-  type: string;
+export interface SchemaAdapter<T> {
+  parse(value: unknown): T;
+}
+
+export interface ActionExecutionContext<TInput = unknown> {
+  run: ActionRun<TInput>;
+  manifest: ActionManifest;
+  input: TInput;
+  actor?: ActorRef;
+  idempotencyKey?: string;
+  dryRun: boolean;
+}
+
+export interface ActionExecutor<TInput = unknown, TOutput = unknown> {
+  plan?: (context: ActionExecutionContext<TInput>) => ActionPlanStep[] | Promise<ActionPlanStep[]>;
+  preview?: (context: ActionExecutionContext<TInput>) => ActionPreview | Promise<ActionPreview>;
+  execute: (context: ActionExecutionContext<TInput>) => TOutput | Promise<TOutput>;
+  rollback?: (context: ActionExecutionContext<TInput> & { output?: TOutput; error?: unknown }) => ActionPreview | Promise<ActionPreview>;
+}
+
+export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
+  manifest: ActionManifest;
+  input?: SchemaAdapter<TInput>;
+  output?: SchemaAdapter<TOutput>;
+  executor: ActionExecutor<TInput, TOutput>;
+}
+
+export interface ActionRequest {
   actionId: string;
-  invocationId?: string;
-  runId?: string;
-  time: string;
-  actor?: ActionActor;
-  data: TData;
+  input: unknown;
+  actor?: ActorRef;
+  idempotencyKey?: string;
+  dryRun?: boolean;
+  evidence?: EvidenceRef[];
   metadata?: JsonObject;
 }
 
-export interface ActionManifestValidationError {
-  path: string;
-  code: string;
-  message: string;
+export interface RunActionOptions {
+  autoApprove?: ApprovalDecision;
+  rollbackOnFailure?: boolean;
 }
 
-export interface ActionManifestValidationResult {
-  valid: boolean;
-  errors: ActionManifestValidationError[];
-  manifest?: ActionManifest;
-}
+export type ActionGuardrailHook = (context: ActionExecutionContext) => GuardrailResult | Promise<GuardrailResult>;
+export type ActionAuditSink = (event: ActionAuditEvent) => void | Promise<void>;
