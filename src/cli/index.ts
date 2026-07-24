@@ -1,205 +1,370 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ACTION_RUN_STATUSES, TERMINAL_ACTION_RUN_STATUSES } from "../types.js";
-import { exampleActionManifest, validateActionManifest } from "../manifest.js";
-import { ACTIONS_MCP_CAPABILITIES } from "../mcp/capabilities.js";
-
-interface ParsedArgs {
-  json: boolean;
-  rest: string[];
-}
+import { Command } from "commander";
+import { ProjectPanelSchema, SCHEMA_IDS } from "@hasna/contracts/schemas";
+import type { ActionManifest, ActionRun, ActorRef, JsonObject, RiskLevel } from "../types.js";
+import { ActionsClient, assertManifest, createLocalShellAction } from "../index.js";
+import { JsonActionsStore, getActionsStatus } from "../storage.js";
+import {
+  DEFAULT_LIST_LIMIT,
+  formatManifestDetail,
+  formatManifestList,
+  formatRunDetail,
+  formatRunList,
+  formatStatus,
+  paginate,
+  parsePositiveIntOption,
+  truncateText,
+} from "../presentation.js";
+import { ACTIONS_VERSION } from "../version.js";
 
 export interface RunActionsCliOptions {
   programName?: string;
+  argv?: string[];
 }
 
-export async function runActionsCli(argv = Bun.argv.slice(2), options: RunActionsCliOptions = {}): Promise<number> {
-  const parsed = parseGlobalArgs(argv);
-  const command = parsed.rest[0];
-
-  try {
-    if (!command || command === "--help" || command === "-h" || command === "help") {
-      printHelp(options);
-      return 0;
-    }
-
-    if (command === "--version" || command === "-v" || command === "version") {
-      output(parsed, { version: packageVersion() }, () => console.log(packageVersion()));
-      return 0;
-    }
-
-    if (command === "status") {
-      output(parsed, buildStatus(), () => {
-        console.log(`actions ${packageVersion()}`);
-        console.log(`statuses: ${ACTION_RUN_STATUSES.join(", ")}`);
-      });
-      return 0;
-    }
-
-    if (command === "manifest") {
-      return runManifestCommand(parsed, options);
-    }
-
-    if (command === "validate") {
-      return runValidateCommand(parsed);
-    }
-
-    if (command === "mcp") {
-      return runMcpCommand(parsed, options);
-    }
-
-    throw new Error(`Unknown command: ${command}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (parsed.json) {
-      console.error(JSON.stringify({ ok: false, error: message }, null, 2));
-    } else {
-      console.error(`actions: ${message}`);
-    }
-    return 1;
-  }
+function parseJsonObject(value: string): unknown {
+  const parsed = JSON.parse(value);
+  return parsed;
 }
 
-function runManifestCommand(parsed: ParsedArgs, options: RunActionsCliOptions): number {
-  const subcommand = parsed.rest[1];
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    printManifestHelp(options);
-    return 0;
-  }
-  if (subcommand === "example") {
-    output(parsed, exampleActionManifest(), () => console.log(JSON.stringify(exampleActionManifest(), null, 2)));
-    return 0;
-  }
-  throw new Error(`Unknown manifest command: ${subcommand}`);
+function readJsonFile(path: string): unknown {
+  return JSON.parse(readFileSync(path, "utf-8"));
 }
 
-function runValidateCommand(parsed: ParsedArgs): number {
-  const file = parsed.rest[1];
-  if (!file || file === "--help" || file === "-h") {
-    console.log(`${programName()} validate <manifest.json>
-
-Validate an action manifest JSON file. Use "-" to read from stdin.`);
-    return file ? 0 : 1;
-  }
-  const text = file === "-" ? readFileSync(0, "utf-8") : readFileSync(file, "utf-8");
-  const result = validateActionManifest(JSON.parse(text));
-  output(parsed, result, () => {
-    if (result.valid) {
-      console.log("valid");
-    } else {
-      for (const error of result.errors) {
-        console.log(`${error.path}: ${error.message}`);
-      }
-    }
-  });
-  return result.valid ? 0 : 1;
+function readManifest(path: string): ActionManifest {
+  const manifest = readJsonFile(path) as ActionManifest;
+  assertManifest(manifest);
+  return manifest;
 }
 
-function runMcpCommand(parsed: ParsedArgs, options: RunActionsCliOptions): number {
-  const subcommand = parsed.rest[1];
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    printMcpHelp(options);
-    return 0;
-  }
-  if (subcommand === "capabilities") {
-    output(parsed, ACTIONS_MCP_CAPABILITIES, () => console.log(JSON.stringify(ACTIONS_MCP_CAPABILITIES, null, 2)));
-    return 0;
-  }
-  throw new Error(`Unknown mcp command: ${subcommand}`);
+function inputFromOptions(options: { input?: string; inputFile?: string }): unknown {
+  if (options.inputFile) return readJsonFile(options.inputFile);
+  if (options.input) return parseJsonObject(options.input);
+  return {};
 }
 
-function parseGlobalArgs(argv: string[]): ParsedArgs {
-  const rest: string[] = [];
-  let json = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--") {
-      rest.push(...argv.slice(index + 1));
-      break;
-    }
-    if (arg === "--json" || arg === "-j") {
-      json = true;
-      continue;
-    }
-    rest.push(...argv.slice(index));
-    break;
-  }
-  return { json, rest };
+function actorFromOption(actor: string | undefined): ActorRef {
+  return { id: actor ?? "cli", type: "human" };
 }
 
-function output(parsed: ParsedArgs, value: unknown, human: () => void): void {
-  if (parsed.json) {
-    console.log(JSON.stringify(value, null, 2));
-    return;
-  }
-  human();
+function output(json: boolean | undefined, value: unknown, human: () => string): void {
+  if (json) console.log(JSON.stringify(value, null, 2));
+  else console.log(human());
 }
 
-function buildStatus(): Record<string, unknown> {
-  return {
-    service: "actions",
-    package: "@hasna/actions",
-    version: packageVersion(),
-    schemaVersion: "1.0",
-    statuses: ACTION_RUN_STATUSES,
-    terminalStatuses: TERMINAL_ACTION_RUN_STATUSES,
-    capabilities: {
-      manifestValidation: true,
-      providerIdentity: true,
-      sideEffectClassification: true,
-      requiredGrants: true,
-      dryRunContracts: true,
-      idempotencyContracts: true,
-      approvalContracts: true,
-      auditEventShapes: true,
-      executionBindingMetadata: true,
-      mcpCatalog: true,
+function clientFor(dir?: string): ActionsClient {
+  return new ActionsClient({ store: new JsonActionsStore(dir) });
+}
+
+async function registerShellManifest(client: ActionsClient, manifest: ActionManifest): Promise<void> {
+  await client.register(createLocalShellAction(manifest));
+}
+
+async function findManifest(client: ActionsClient, idOrPrefix: string): Promise<ActionManifest | undefined> {
+  const exact = await client.getManifest(idOrPrefix);
+  if (exact) return exact;
+  const matches = (await client.listManifests()).filter((manifest) => manifest.id.startsWith(idOrPrefix));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+async function findRun(client: ActionsClient, idOrPrefix: string) {
+  const exact = await client.getRun(idOrPrefix);
+  if (exact) return exact;
+  const matches = (await client.listRuns()).filter((run) => run.id.startsWith(idOrPrefix));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function jsonList<T>(items: T[], options: { limit?: number; cursor?: string }): T[] {
+  if (options.limit === undefined && options.cursor === undefined) return items;
+  return paginate(items, { limit: options.limit, cursor: options.cursor }).items;
+}
+
+function metadataProjectId(metadata: JsonObject | undefined): string | undefined {
+  const value = metadata?.["projectId"] ?? metadata?.["project"] ?? metadata?.["project_id"];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function manifestMatchesProject(manifest: ActionManifest, project: string): boolean {
+  const explicitProject = metadataProjectId(manifest.metadata);
+  if (explicitProject) return explicitProject === project;
+  return manifest.scope.level === "project" && (manifest.resource.identifiers ?? []).includes(project);
+}
+
+function runMatchesProject(run: ActionRun, project: string, projectActionIds: Set<string>): boolean {
+  const explicitProject = metadataProjectId(run.metadata);
+  if (explicitProject) return explicitProject === project;
+  return projectActionIds.has(run.actionId);
+}
+
+function riskPriority(riskLevel: RiskLevel): "low" | "medium" | "high" | "critical" {
+  return riskLevel;
+}
+
+async function buildProjectPanel(client: ActionsClient, project: string, limit: number) {
+  const generatedAt = new Date().toISOString();
+  const manifests = (await client.listManifests()).filter((manifest) => manifestMatchesProject(manifest, project));
+  const projectActionIds = new Set(manifests.map((manifest) => manifest.id));
+  const runs = (await client.listRuns()).filter((run) => runMatchesProject(run, project, projectActionIds));
+  const actionItems = manifests.slice(0, limit).map((manifest) => ({
+    id: `action:${manifest.id}`,
+    title: manifest.name,
+    summary: truncateText(manifest.description, 160),
+    status: `${manifest.riskLevel}; ${manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"}`,
+    priority: riskPriority(manifest.riskLevel),
+    resourceRefs: [{
+      kind: "action" as const,
+      id: manifest.id,
+      name: manifest.name,
+      uri: `dashboard://actions/${encodeURIComponent(manifest.id)}?version=${encodeURIComponent(manifest.version)}`,
+      tags: [manifest.riskLevel, manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"],
+    }],
+  }));
+  const remaining = Math.max(0, limit - actionItems.length);
+  const runItems = runs.slice(0, remaining).map((run) => ({
+    id: `run:${run.id}`,
+    title: `${run.status} ${run.actionId}`,
+    summary: `Action run ${run.id} for ${run.actionId}@${run.actionVersion}`,
+    status: run.status,
+    priority: riskPriority(run.riskLevel),
+    timestamp: run.updatedAt,
+    resourceRefs: [
+      { kind: "run" as const, id: run.id, name: run.id, uri: `dashboard://actions/runs/${encodeURIComponent(run.id)}`, tags: [run.status] },
+      { kind: "action" as const, id: run.actionId, name: run.actionId, uri: `dashboard://actions/${encodeURIComponent(run.actionId)}?version=${encodeURIComponent(run.actionVersion)}`, tags: [run.riskLevel] },
+    ],
+  }));
+
+  return ProjectPanelSchema.parse({
+    schema: SCHEMA_IDS.projectPanel,
+    id: `actions_panel_${project}`,
+    createdAt: generatedAt,
+    projectId: project,
+    provider: {
+      kind: "actions",
+      id: "open-actions",
+      name: "Actions",
+      sourcePackage: "@hasna/actions",
     },
-  };
+    kind: "actions",
+    title: "Actions",
+    summary: "Project-scoped action manifests and recent action runs.",
+    state: manifests.length || runs.length ? "ready" : "empty",
+    generatedAt,
+    freshness: "fresh",
+    metrics: [
+      { id: "actions", label: "Actions", value: manifests.length, status: manifests.length ? "good" : "unknown" },
+      { id: "recent_runs", label: "Recent Runs", value: runs.length, status: runs.length ? "good" : "unknown" },
+    ],
+    items: [...actionItems, ...runItems],
+    actions: manifests.slice(0, limit).map((manifest) => ({
+      kind: "action" as const,
+      id: manifest.id,
+      name: manifest.name,
+      uri: `dashboard://actions/${encodeURIComponent(manifest.id)}?version=${encodeURIComponent(manifest.version)}`,
+      tags: [manifest.riskLevel, manifest.dryRun.default === true ? "dry-run-default" : "dry-run-not-default"],
+    })),
+  });
 }
 
-function printHelp(options: RunActionsCliOptions = {}): void {
-  const name = programName(options);
-  console.log(`${name} ${packageVersion()}
+export function createProgram(): Command {
+  const program = new Command();
+  program.name("actions").description("Typed, auditable action contracts for agentic software").version(ACTIONS_VERSION);
+  program.option("--dir <path>", "Override local actions data directory");
 
-Usage:
-  ${name} [--json] status
-  ${name} [--json] manifest example
-  ${name} [--json] validate <manifest.json>
-  ${name} [--json] mcp capabilities`);
+  program
+    .command("status")
+    .description("Show local actions storage status")
+    .option("--verbose", "Show storage file details", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (options: { verbose?: boolean; json?: boolean }) => {
+      const status = await getActionsStatus(program.opts<{ dir?: string }>().dir);
+      output(options.json, status, () => formatStatus(status, { verbose: options.verbose }));
+    });
+
+  program
+    .command("project-panel")
+    .description("Emit a bounded project dashboard panel for action manifests and runs")
+    .requiredOption("--project <slug>", "Project slug")
+    .option("--limit <n>", `Limit panel items (default ${DEFAULT_LIST_LIMIT})`, parsePositiveIntOption)
+    .option("--contract", "Validate and emit the hasna.project_panel.v1 contract", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (options: { project: string; limit?: number; contract?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const panel = await buildProjectPanel(client, options.project, options.limit ?? DEFAULT_LIST_LIMIT);
+      output(options.json, panel, () => `actions panel ${options.project}: ${panel.metrics[0]?.value ?? 0} actions, ${panel.metrics[1]?.value ?? 0} recent runs`);
+    });
+
+  const manifests = program.command("manifests").description("Manage action manifests");
+  manifests
+    .command("validate <file>")
+    .description("Validate a manifest file")
+    .option("--verbose", "Show a compact manifest detail view", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action((file: string, options: { verbose?: boolean; json?: boolean }) => {
+      const manifest = readManifest(file);
+      output(options.json, { ok: true, manifest }, () => options.verbose ? formatManifestDetail(manifest, { verbose: true }) : `valid ${manifest.id}@${manifest.version}`);
+    });
+  manifests
+    .command("list")
+    .description("List stored manifests")
+    .option("--limit <n>", `Limit human output rows (default ${DEFAULT_LIST_LIMIT})`, parsePositiveIntOption)
+    .option("--cursor <offset>", "Start human output at an offset cursor")
+    .option("--verbose", "Show more manifest columns", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (options: { limit?: number; cursor?: string; verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const items = await client.listManifests();
+      output(options.json, jsonList(items, options), () => formatManifestList(paginate(items, { limit: options.limit, cursor: options.cursor }), { verbose: options.verbose }));
+    });
+  manifests
+    .command("show <id>")
+    .description("Show one stored manifest")
+    .option("--verbose", "Show schemas and execution metadata", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (id: string, options: { verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const manifest = await findManifest(client, id);
+      if (!manifest) throw new Error(`Manifest not found or prefix is ambiguous: ${id}`);
+      output(options.json, manifest, () => formatManifestDetail(manifest, { verbose: options.verbose }));
+    });
+  manifests
+    .command("inspect <id>")
+    .description("Inspect one stored manifest with expanded human detail")
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (id: string, options: { json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const manifest = await findManifest(client, id);
+      if (!manifest) throw new Error(`Manifest not found or prefix is ambiguous: ${id}`);
+      output(options.json, manifest, () => formatManifestDetail(manifest, { verbose: true }));
+    });
+
+  program
+    .command("run <manifest>")
+    .description("Plan, preview, and optionally execute a local-shell action manifest")
+    .option("--input <json>", "Input JSON object")
+    .option("--input-file <path>", "Read input JSON from a file")
+    .option("--idempotency-key <key>", "Idempotency key")
+    .option("--actor <id>", "Actor id")
+    .option("--dry-run", "Preview without executing", false)
+    .option("--approve", "Auto-approve this CLI run", false)
+    .option("--verbose", "Show compact run detail after planning/execution", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (manifestPath: string, options: { input?: string; inputFile?: string; idempotencyKey?: string; actor?: string; dryRun?: boolean; approve?: boolean; verbose?: boolean; json?: boolean }) => {
+      const manifest = readManifest(manifestPath);
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      await registerShellManifest(client, manifest);
+      const actor = actorFromOption(options.actor);
+      const run = await client.run(
+        {
+          actionId: manifest.id,
+          input: inputFromOptions(options),
+          actor,
+          idempotencyKey: options.idempotencyKey,
+          dryRun: options.dryRun,
+        },
+        options.approve
+          ? { autoApprove: { actor, decision: "approved", reason: "CLI --approve" } }
+          : {},
+      );
+      output(options.json, run, () => options.verbose ? formatRunDetail(run, { verbose: true }) : `${run.status} ${run.id} ${truncateText(run.confirmationSummary, 120)}`);
+    });
+
+  const runs = program.command("runs").description("Inspect action runs");
+  runs
+    .command("list")
+    .description("List action runs")
+    .option("--action <id>", "Filter by action id")
+    .option("--status <status>", "Filter by status")
+    .option("--limit <n>", `Limit human output rows (default ${DEFAULT_LIST_LIMIT})`, parsePositiveIntOption)
+    .option("--cursor <offset>", "Start human output at an offset cursor")
+    .option("--verbose", "Show more run columns", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (options: { action?: string; status?: string; limit?: number; cursor?: string; verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const items = await client.listRuns({ actionId: options.action, status: options.status });
+      output(options.json, jsonList(items, options), () => formatRunList(paginate(items, { limit: options.limit, cursor: options.cursor }), { verbose: options.verbose }));
+    });
+  runs
+    .command("show <id>")
+    .description("Show one action run")
+    .option("--verbose", "Show input/output/events in compact form", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (id: string, options: { verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const run = await findRun(client, id);
+      if (!run) throw new Error(`Run not found or prefix is ambiguous: ${id}`);
+      output(options.json, run, () => formatRunDetail(run, { verbose: options.verbose }));
+    });
+  runs
+    .command("inspect <id>")
+    .description("Inspect one action run with expanded human detail")
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (id: string, options: { json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const run = await findRun(client, id);
+      if (!run) throw new Error(`Run not found or prefix is ambiguous: ${id}`);
+      output(options.json, run, () => formatRunDetail(run, { verbose: true }));
+    });
+
+  program
+    .command("approve <run-id>")
+    .description("Approve a planned action run")
+    .option("--actor <id>", "Actor id")
+    .option("--reason <text>", "Approval reason")
+    .option("--verbose", "Show compact run detail after approval", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (runId: string, options: { actor?: string; reason?: string; verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const run = await client.approve(runId, {
+        actor: actorFromOption(options.actor),
+        decision: "approved",
+        reason: options.reason,
+      });
+      output(options.json, run, () => options.verbose ? formatRunDetail(run, { verbose: true }) : `${run.status} ${run.id}`);
+    });
+
+  program
+    .command("deny <run-id>")
+    .description("Deny a planned action run")
+    .option("--actor <id>", "Actor id")
+    .option("--reason <text>", "Denial reason")
+    .option("--verbose", "Show compact run detail after denial", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (runId: string, options: { actor?: string; reason?: string; verbose?: boolean; json?: boolean }) => {
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      const run = await client.deny(runId, {
+        actor: actorFromOption(options.actor),
+        decision: "denied",
+        reason: options.reason,
+      });
+      output(options.json, run, () => options.verbose ? formatRunDetail(run, { verbose: true }) : `${run.status} ${run.id}`);
+    });
+
+  program
+    .command("execute <run-id> <manifest>")
+    .description("Execute an approved stored run using a local-shell manifest")
+    .option("--verbose", "Show compact run detail after execution", false)
+    .option("-j, --json", "Print JSON output", false)
+    .action(async (runId: string, manifestPath: string, options: { verbose?: boolean; json?: boolean }) => {
+      const manifest = readManifest(manifestPath);
+      const client = clientFor(program.opts<{ dir?: string }>().dir);
+      await registerShellManifest(client, manifest);
+      const run = await client.execute(runId);
+      output(options.json, run, () => options.verbose ? formatRunDetail(run, { verbose: true }) : `${run.status} ${run.id}`);
+    });
+
+  return program;
 }
 
-function printManifestHelp(options: RunActionsCliOptions = {}): void {
-  const name = programName(options);
-  console.log(`${name} manifest
-
-Usage:
-  ${name} [--json] manifest example`);
-}
-
-function printMcpHelp(options: RunActionsCliOptions = {}): void {
-  const name = programName(options);
-  console.log(`${name} mcp
-
-Usage:
-  ${name} [--json] mcp capabilities`);
-}
-
-function programName(options: RunActionsCliOptions = {}): string {
-  return options.programName ?? "actions";
-}
-
-function packageVersion(): string {
-  try {
-    const packagePath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
-    return JSON.parse(readFileSync(packagePath, "utf-8")).version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
+export async function runActionsCli(argv = process.argv.slice(2), options: RunActionsCliOptions = {}): Promise<void> {
+  const program = createProgram();
+  if (options.programName) program.name(options.programName);
+  await program.parseAsync(argv, { from: "user" });
 }
 
 if (import.meta.main) {
-  process.exit(await runActionsCli());
+  runActionsCli().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

@@ -1,104 +1,50 @@
 #!/usr/bin/env bun
-import { readFileSync } from "node:fs";
-import type { ActionManifest, ActionSchema } from "../types.js";
-import { parseActionManifest } from "../manifest.js";
-export { ACTIONS_MCP_CAPABILITIES } from "./capabilities.js";
-import { ACTIONS_MCP_CAPABILITIES } from "./capabilities.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ActionsClient } from "../index.js";
+import { ACTIONS_VERSION } from "../version.js";
+import { TOOLS, type ToolDeps } from "./tools.js";
 
-export interface ActionsMcpTool {
-  name: string;
-  title?: string;
-  description?: string;
-  inputSchema: ActionSchema;
-  annotations: {
-    actionId: string;
-    actionVersion: string;
-    provider: string;
-    providerVersion?: string;
-    sideEffectClass: string;
-    requiredGrantKinds: string[];
-    requiredGrantCount: number;
-    dryRunSupported: boolean;
-    requiresApproval: boolean;
-    idempotencyRequired: boolean;
-    risk?: string;
-  };
+export interface CreateServerOptions {
+  deps?: ToolDeps;
 }
 
-export interface ActionsMcpCatalog {
-  server: "open-actions";
-  schemaVersion: "1.0";
-  tools: ActionsMcpTool[];
-}
+export function createServer(options: CreateServerOptions = {}): McpServer {
+  const server = new McpServer({ name: "actions", version: ACTIONS_VERSION });
+  const deps = options.deps ?? { client: new ActionsClient() };
 
-export function actionManifestToMcpTool(input: unknown): ActionsMcpTool {
-  const manifest = parseActionManifest(input);
-  return {
-    name: mcpToolName(manifest),
-    title: manifest.title,
-    description: manifest.description,
-    inputSchema: manifest.inputSchema ?? { type: "object", additionalProperties: true },
-    annotations: {
-      actionId: manifest.id,
-      actionVersion: manifest.version,
-      provider: manifest.provider.id,
-      providerVersion: manifest.provider.version,
-      sideEffectClass: manifest.sideEffects.classification,
-      requiredGrantKinds: [...new Set(manifest.requiredGrants.map((grant) => grant.kind))],
-      requiredGrantCount: manifest.requiredGrants.length,
-      dryRunSupported: manifest.dryRun?.supported ?? false,
-      requiresApproval: manifest.approval?.requiresApproval ?? false,
-      idempotencyRequired: manifest.idempotency?.required ?? false,
-      risk: manifest.policy?.risk,
-    },
-  };
-}
-
-export function createActionsMcpCatalog(manifests: unknown[]): ActionsMcpCatalog {
-  return {
-    server: "open-actions",
-    schemaVersion: "1.0",
-    tools: manifests.map(actionManifestToMcpTool),
-  };
-}
-
-export async function runActionsMcpCli(argv = Bun.argv.slice(2)): Promise<number> {
-  const command = argv[0];
-  if (!command || command === "--help" || command === "-h") {
-    printHelp();
-    return 0;
+  for (const tool of TOOLS) {
+    server.registerTool(
+      tool.name,
+      { title: tool.title, description: tool.description, inputSchema: tool.inputSchema },
+      async (args: Record<string, unknown>) => {
+        try {
+          const result = await tool.handler(deps, args ?? {});
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        } catch (error) {
+          return {
+            content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
+            isError: true,
+          };
+        }
+      },
+    );
   }
-  if (command === "capabilities") {
-    console.log(JSON.stringify(ACTIONS_MCP_CAPABILITIES, null, 2));
-    return 0;
-  }
-  if (command === "tool") {
-    const file = argv[1];
-    if (!file) {
-      console.error("actions-mcp: tool requires a manifest JSON file");
-      return 1;
-    }
-    const manifest = JSON.parse(file === "-" ? readFileSync(0, "utf-8") : readFileSync(file, "utf-8"));
-    console.log(JSON.stringify(actionManifestToMcpTool(manifest), null, 2));
-    return 0;
-  }
-  console.error(`actions-mcp: unknown command: ${command}`);
-  return 1;
+
+  return server;
 }
 
-function mcpToolName(manifest: ActionManifest): string {
-  const bindingTool = manifest.bindings.find((binding) => binding.kind === "mcp" && binding.toolName)?.toolName;
-  return bindingTool ?? manifest.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-}
-
-function printHelp(): void {
-  console.log(`actions-mcp
-
-Usage:
-  actions-mcp capabilities
-  actions-mcp tool <manifest.json>`);
+async function main(): Promise<void> {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
 }
 
 if (import.meta.main) {
-  process.exit(await runActionsMcpCli());
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
+
+export { TOOLS } from "./tools.js";
